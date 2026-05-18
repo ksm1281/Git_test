@@ -133,6 +133,22 @@ if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId)
     }
 }
 
+if ($action === 'pay' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId && isManager()) {
+    $amount = (float)($_POST['amount'] ?? 0);
+    $method = $_POST['method'] ?? 'cash';
+    $date = $_POST['date'] ?? date('Y-m-d');
+    $notes = trim($_POST['notes'] ?? '');
+
+    if ($amount > 0 && in_array($method, ['cash', 'card', 'fop', 'invoice'])) {
+        $stmt = $pdo->prepare("INSERT INTO erp_payments (invoice_id, amount, method, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$invoiceId, $amount, $method, $date, $notes, $user['user_id']]);
+        flashMessage('success', 'Платіж на ' . formatMoney($amount) . ' зареєстровано');
+    } else {
+        flashMessage('error', 'Некоректна сума або метод оплати');
+    }
+    redirect(BASE_URL . '/modules/incoming.php?action=view&id=' . $invoiceId);
+}
+
 if ($action === 'confirm' && $invoiceId) {
     $pdo->prepare("UPDATE erp_incoming_invoices SET status = 'confirmed' WHERE invoice_id = ?")->execute([$invoiceId]);
     flashMessage('success', 'Накладну підтверджено');
@@ -226,6 +242,83 @@ if ($action === 'view' && $invoiceId) {
                         </tr>
                     </tfoot>
                 </table>
+            </div>
+        </div>
+    </div>
+
+    <?php
+    $stmt = $pdo->prepare("SELECT * FROM erp_payments WHERE invoice_id = ? ORDER BY date_added ASC");
+    $stmt->execute([$invoiceId]);
+    $payments = $stmt->fetchAll();
+    $totalPaid = 0;
+    foreach ($payments as $pmt) { $totalPaid += (float)$pmt['amount']; }
+    $balance = (float)$invoice['total_local'] - $totalPaid;
+    $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок'];
+    ?>
+    <div class="row mt-3 g-3">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Оплати постачальнику</div>
+                <div class="card-body p-0">
+                    <?php if (count($payments) > 0): ?>
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr><th>Дата</th><th>Метод</th><th class="text-end">Сума</th><th>Примітка</th></tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($payments as $pmt): ?>
+                            <tr>
+                                <td><?php echo formatDateShort($pmt['date']); ?></td>
+                                <td><?php echo $methodLabels[$pmt['method']] ?? $pmt['method']; ?></td>
+                                <td class="text-end fw-bold text-danger"><?php echo formatMoney($pmt['amount']); ?></td>
+                                <td><?php echo escape($pmt['notes'] ?: '-'); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold"><td colspan="2">Сплачено</td><td class="text-end text-danger"><?php echo formatMoney($totalPaid); ?></td><td></td></tr>
+                            <tr class="fw-bold <?php echo $balance > 0 ? 'text-warning' : 'text-success'; ?>"><td colspan="2">Залишок</td><td class="text-end"><?php echo formatMoney($balance); ?></td><td></td></tr>
+                        </tfoot>
+                    </table>
+                    <?php else: ?>
+                    <div class="text-center py-3 text-muted">Оплат ще немає</div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">Додати оплату</div>
+                <div class="card-body">
+                    <form method="post" action="?action=pay&id=<?php echo $invoiceId; ?>">
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label">Сума (UAH)</label>
+                                <input type="number" name="amount" class="form-control" step="0.01" min="0.01" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Метод</label>
+                                <select name="method" class="form-select">
+                                    <option value="cash">Готівка</option>
+                                    <option value="card">Картка</option>
+                                    <option value="fop">ФОП</option>
+                                    <option value="invoice">Рахунок</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Дата</label>
+                                <input type="date" name="date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Примітка</label>
+                                <input type="text" name="notes" class="form-control" placeholder="Опис платежу">
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-danger btn-sm"><i class="bi bi-cash"></i> Додати платіж</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>

@@ -265,7 +265,7 @@ function initErpTables($pdo) {
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `erp_payments` (
             `payment_id` INT AUTO_INCREMENT PRIMARY KEY,
-            `order_id` INT NOT NULL,
+            `invoice_id` INT NOT NULL,
             `amount` DECIMAL(15,4) NOT NULL,
             `method` ENUM('cash','card','fop','invoice') NOT NULL DEFAULT 'cash',
             `date` DATE NOT NULL,
