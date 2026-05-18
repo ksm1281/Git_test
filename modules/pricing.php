@@ -14,6 +14,23 @@ $rates = getCurrentRates($pdo);
 $rateUsd = $rates['USD'];
 $rateEur = $rates['EUR'];
 
+if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManager()) {
+    $name = trim($_POST['name'] ?? '');
+    $model = trim($_POST['model'] ?? '');
+    $price = (float)($_POST['price'] ?? 0);
+
+    if ($name) {
+        $maxId = $pdo->query("SELECT COALESCE(MAX(product_id), 0) FROM erp_products")->fetchColumn();
+        $newId = $maxId + 1;
+        $stmt = $pdo->prepare("INSERT INTO erp_products (product_id, name, model, price_wholesale, price_semi_wholesale, price_retail, quantity, status) VALUES (?, ?, ?, ?, ?, ?, 0, 1)");
+        $stmt->execute([$newId, $name, $model, $price, $price, $price]);
+        flashMessage('success', 'Товар "' . escape($name) . '" створено (ID: ' . $newId . ')');
+    } else {
+        flashMessage('error', 'Введіть назву товару');
+    }
+    redirect(BASE_URL . '/modules/pricing.php');
+}
+
 if ($action === 'save_defaults' && $_SERVER['REQUEST_METHOD'] === 'POST' && isAdmin()) {
     $stmt = $pdo->prepare("UPDATE erp_settings SET value = ? WHERE `key` = ?");
     $stmt->execute([(float)$_POST['default_markup_wholesale'], 'default_markup_wholesale']);
@@ -102,6 +119,9 @@ include __DIR__ . '/../includes/header.php';
             <input type="search" name="search" class="form-control form-control-sm search-box me-2" placeholder="Пошук товару..." value="<?php echo escape($search); ?>">
             <button class="btn btn-sm btn-outline-primary"><i class="bi bi-search"></i></button>
         </form>
+        <?php if (isManager()): ?>
+        <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#createModal"><i class="bi bi-plus-lg"></i> Додати товар</button>
+        <?php endif; ?>
         <?php if (isAdmin()): ?>
         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#defaultsModal"><i class="bi bi-gear"></i> Налаштування</button>
         <?php endif; ?>
@@ -212,6 +232,37 @@ include __DIR__ . '/../includes/header.php';
     <?php if ($pagination['total_pages'] > 1): ?>
     <div class="card-footer"><?php echo renderPagination(BASE_URL . '/modules/pricing.php?', $pagination); ?></div>
     <?php endif; ?>
+</div>
+
+<div class="modal fade" id="createModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="?action=create">
+                <div class="modal-header">
+                    <h5 class="modal-title">Додати товар</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Назва *</label>
+                        <input type="text" name="name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Модель/Артикул</label>
+                        <input type="text" name="model" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Ціна (UAH)</label>
+                        <input type="number" name="price" class="form-control" step="0.01" min="0" value="0">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                    <button type="submit" class="btn btn-success">Створити товар</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="pricingModal" tabindex="-1">

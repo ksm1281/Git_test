@@ -24,7 +24,7 @@ define('BASE_CURRENCY', 'UAH');
 
 // Paths
 define('BASE_PATH', dirname(__FILE__));
-define('BASE_URL', rtrim(dirname($_SERVER['PHP_SELF']), '/\\'));
+define('BASE_URL', '/ERP');
 
 // =====================================================
 // ERP Database Connection

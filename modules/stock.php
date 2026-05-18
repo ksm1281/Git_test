@@ -56,6 +56,7 @@ if ($action === 'moves' && $productId) {
                             <td><?php echo escape($m['notes'] ?: '-'); ?></td>
                             <td><?php echo formatDate($m['date_added']); ?></td>
                         </tr>
+                        <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
