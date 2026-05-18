@@ -1,0 +1,105 @@
+body {
+    background: #f4f6f9;
+    font-size: .875rem;
+}
+
+.sidebar {
+    min-height: calc(100vh - 56px);
+}
+
+.card {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    margin-bottom: 1rem;
+}
+
+.card-header {
+    background: transparent;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    font-weight: 600;
+    padding: .75rem 1.25rem;
+}
+
+.table th {
+    font-weight: 600;
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: #6c757d;
+    border-top: none;
+    white-space: nowrap;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+.stat-card {
+    border-radius: 12px;
+    padding: 1.25rem;
+}
+
+.stat-card .stat-icon {
+    font-size: 2rem;
+    opacity: .15;
+    position: absolute;
+    right: 1rem;
+    bottom: 1rem;
+}
+
+.stat-card .stat-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+}
+
+.stat-card .stat-label {
+    font-size: .8rem;
+    opacity: .8;
+}
+
+.btn-group-xs > .btn, .btn-xs {
+    padding: .15rem .5rem;
+    font-size: .75rem;
+}
+
+.navbar-brand {
+    font-weight: 700;
+    letter-spacing: -.02em;
+}
+
+.navbar-dark .navbar-nav .nav-link {
+    padding-right: .85rem;
+    padding-left: .85rem;
+}
+
+footer {
+    font-size: .8rem;
+}
+
+@media print {
+    .navbar, footer, .btn, .no-print { display: none !important; }
+}
+
+.search-box {
+    max-width: 300px;
+}
+
+.alert-dismissible .btn-close {
+    padding: .75rem 1rem;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+.form-label {
+    font-weight: 500;
+    font-size: .85rem;
+    margin-bottom: .25rem;
+}
+
+.required::after {
+    content: ' *';
+    color: #dc3545;
+}
