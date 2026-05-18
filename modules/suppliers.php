@@ -54,7 +54,10 @@ $stmt->execute($params);
 $total = $stmt->fetchColumn();
 $pagination = paginate($total, $perPage, $page);
 
-$sql = "SELECT * FROM erp_suppliers $where ORDER BY name ASC LIMIT {$pagination['per_page']} OFFSET {$pagination['offset']}";
+$sql = "SELECT s.*,
+    COALESCE((SELECT SUM(i.total_local) FROM erp_incoming_invoices i WHERE i.supplier_id = s.supplier_id AND i.status = 'confirmed'), 0) as invoice_total,
+    COALESCE((SELECT SUM(p.amount) FROM erp_payments p JOIN erp_incoming_invoices i ON p.invoice_id = i.invoice_id WHERE i.supplier_id = s.supplier_id), 0) as payment_total
+    FROM erp_suppliers s $where ORDER BY s.name ASC LIMIT {$pagination['per_page']} OFFSET {$pagination['offset']}";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $suppliers = $stmt->fetchAll();
@@ -197,18 +200,22 @@ include __DIR__ . '/../includes/header.php';
                         <th>Телефон</th>
                         <th>Email</th>
                         <th>Валюта</th>
+                        <th class="text-end">Борг (UAH)</th>
                         <th>Статус</th>
                         <th class="text-center">Дії</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($suppliers as $s): ?>
+                    <?php foreach ($suppliers as $s):
+                        $debt = (float)$s['invoice_total'] - (float)$s['payment_total'];
+                    ?>
                     <tr>
                         <td class="fw-bold"><?php echo escape($s['name']); ?></td>
                         <td><?php echo escape($s['contact_person'] ?: '-'); ?></td>
                         <td><?php echo escape($s['phone'] ?: '-'); ?></td>
                         <td><?php echo escape($s['email'] ?: '-'); ?></td>
                         <td><?php echo escape($s['currency']); ?></td>
+                        <td class="text-end fw-bold <?php echo $debt > 0 ? 'text-danger' : 'text-success'; ?>"><?php echo formatMoney($debt); ?></td>
                         <td><?php echo $s['status'] ? '<span class="badge bg-success">Активний</span>' : '<span class="badge bg-secondary">Неактивний</span>'; ?></td>
                         <td class="text-center">
                             <a href="<?php echo BASE_URL; ?>/modules/suppliers.php?action=edit&id=<?php echo $s['supplier_id']; ?>" class="btn btn-sm btn-outline-primary" title="Редагувати"><i class="bi bi-pencil"></i></a>
