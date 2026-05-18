@@ -275,6 +275,44 @@ function initErpTables($pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `erp_cash_accounts` (
+            `account_id` INT AUTO_INCREMENT PRIMARY KEY,
+            `name` VARCHAR(128) NOT NULL,
+            `type` ENUM('cash','bank','fop') NOT NULL DEFAULT 'cash',
+            `currency` VARCHAR(8) DEFAULT 'UAH',
+            `initial_balance` DECIMAL(15,4) DEFAULT 0,
+            `status` TINYINT DEFAULT 1,
+            `date_added` DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `erp_transactions` (
+            `transaction_id` INT AUTO_INCREMENT PRIMARY KEY,
+            `account_id` INT NOT NULL,
+            `type` ENUM('in','out','transfer') NOT NULL,
+            `amount` DECIMAL(15,4) NOT NULL,
+            `category` VARCHAR(64),
+            `method` ENUM('cash','card','fop','invoice','transfer') DEFAULT 'cash',
+            `date` DATE NOT NULL,
+            `description` TEXT,
+            `reference_type` VARCHAR(32),
+            `reference_id` INT,
+            `user_id` INT,
+            `date_added` DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $stmt = $pdo->query("SELECT COUNT(*) FROM erp_cash_accounts");
+    if ($stmt->fetchColumn() == 0) {
+        $pdo->exec("INSERT INTO erp_cash_accounts (name, type, currency) VALUES
+            ('Основна каса', 'cash', 'UAH'),
+            ('Розрахунковий рахунок', 'bank', 'UAH'),
+            ('ФОП', 'fop', 'UAH')
+        ");
+    }
+
     $stmt = $pdo->query("SELECT COUNT(*) FROM erp_users");
     if ($stmt->fetchColumn() == 0) {
         $hash = password_hash('admin', PASSWORD_DEFAULT);

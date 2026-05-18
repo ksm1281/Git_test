@@ -72,6 +72,11 @@ $currentPage = basename($_SERVER['PHP_SELF']);
                             <i class="bi bi-graph-up"></i> Аналітика
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo $currentPage === 'finance.php' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/finance.php">
+                            <i class="bi bi-wallet2"></i> Фінанси
+                        </a>
+                    </li>
                     <?php if (isAdmin()): ?>
                     <li class="nav-item">
                         <a class="nav-link <?php echo $currentPage === 'staff.php' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/staff.php">
