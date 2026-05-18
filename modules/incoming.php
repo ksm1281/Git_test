@@ -14,7 +14,7 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $invoiceNumber = trim($_POST['invoice_number'] ?? '');
     $date = $_POST['date'] ?? date('Y-m-d');
     $currency = $_POST['currency'] ?? 'USD';
-    $rate = (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo));
+    $rate = $currency === 'UAH' ? 1 : (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo));
     $notes = trim($_POST['notes'] ?? '');
 
     if (!$supplierId || empty($invoiceNumber)) {
