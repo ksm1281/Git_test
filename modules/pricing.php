@@ -9,7 +9,9 @@ $search = trim($_GET['search'] ?? '');
 $user = getUserData();
 
 $markups = getDefaultMarkups($pdo);
-$rate = getCurrentRate($pdo);
+$rates = getCurrentRates($pdo);
+$rateUsd = $rates['USD'];
+$rateEur = $rates['EUR'];
 
 if ($action === 'save_defaults' && $_SERVER['REQUEST_METHOD'] === 'POST' && isAdmin()) {
     $stmt = $pdo->prepare("UPDATE erp_settings SET value = ? WHERE `key` = ?");
@@ -71,7 +73,9 @@ $total = $stmt->fetchColumn();
 $pagination = paginate($total, $perPage, $page);
 
 $sql = "SELECT p.*, pr.markup_wholesale, pr.markup_semi_wholesale, pr.markup_retail, pr.use_custom, pr.custom_price_wholesale, pr.custom_price_semi_wholesale, pr.custom_price_retail,
-    COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in') THEN sm.cost_price ELSE NULL END), 0) as avg_cost
+    COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
+    COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock_qty,
+    COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'USD') as purchase_currency
     FROM erp_products p
     LEFT JOIN erp_pricing_rules pr ON p.product_id = pr.product_id
     LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id
@@ -104,7 +108,7 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <div class="row g-3 mb-3">
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card">
             <div class="card-body text-center">
                 <small class="text-muted">Націнка опт</small>
@@ -112,7 +116,7 @@ include __DIR__ . '/../includes/header.php';
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card">
             <div class="card-body text-center">
                 <small class="text-muted">Націнка дрібний опт</small>
@@ -120,11 +124,19 @@ include __DIR__ . '/../includes/header.php';
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card">
             <div class="card-body text-center">
                 <small class="text-muted">Націнка роздріб</small>
                 <div class="fw-bold fs-5"><?php echo $markups['default_markup_retail']; ?>%</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-body text-center">
+                <small class="text-muted">Курс USD / EUR</small>
+                <div class="fw-bold fs-6"><?php echo number_format($rateUsd, 2, '.', ' '); ?> / <?php echo number_format($rateEur, 2, '.', ' '); ?> ₴</div>
             </div>
         </div>
     </div>
@@ -139,7 +151,9 @@ include __DIR__ . '/../includes/header.php';
                 <thead>
                     <tr>
                         <th>Товар</th>
-                        <th class="text-end">Собівартість (USD)</th>
+                        <th class="text-center">Залишок</th>
+                        <th class="text-center">Валюта</th>
+                        <th class="text-end">Собівартість</th>
                         <th class="text-end">Собівартість (UAH)</th>
                         <th class="text-end">Опт</th>
                         <th class="text-end">Дріб. опт</th>
@@ -150,18 +164,29 @@ include __DIR__ . '/../includes/header.php';
                 <tbody>
                     <?php foreach ($products as $p): ?>
                     <?php
-                        $costUsd = (float)$p['avg_cost'];
-                        $costUah = $costUsd * $rate;
+                        $stockQty = (float)$p['stock_qty'];
+                        $purchaseCur = $p['purchase_currency'] ?: 'USD';
+                        $rate = $rates[$purchaseCur] ?? $rates['USD'];
+                        $costForeign = (float)$p['avg_cost'];
+                        $costUah = $costForeign * $rate;
                         $mw = $p['markup_wholesale'] ?? $markups['default_markup_wholesale'];
                         $ms = $p['markup_semi_wholesale'] ?? $markups['default_markup_semi_wholesale'];
                         $mr = $p['markup_retail'] ?? $markups['default_markup_retail'];
                         $pw = $p['use_custom'] ? $p['custom_price_wholesale'] : calcMarkupPrice($costUah, $mw);
                         $ps = $p['use_custom'] ? $p['custom_price_semi_wholesale'] : calcMarkupPrice($costUah, $ms);
                         $pr = $p['use_custom'] ? $p['custom_price_retail'] : calcMarkupPrice($costUah, $mr);
+                        $noStock = $stockQty <= 0;
                     ?>
-                    <tr>
-                        <td class="text-truncate" style="max-width:200px;"><?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?></td>
-                        <td class="text-end"><?php echo $costUsd > 0 ? formatMoneyForeign($costUsd) : '-'; ?></td>
+                    <tr class="<?php echo $noStock ? 'table-warning' : ''; ?>">
+                        <td class="text-truncate" style="max-width:160px;">
+                            <?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?>
+                            <?php if ($noStock): ?>
+                            <span class="badge bg-warning text-dark">Немає в наявності</span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="text-center fw-bold"><?php echo (int)$stockQty; ?></td>
+                        <td class="text-center"><?php echo $purchaseCur; ?></td>
+                        <td class="text-end"><?php echo $costForeign > 0 ? formatMoneyForeign($costForeign, $purchaseCur) : '-'; ?></td>
                         <td class="text-end"><?php echo $costUah > 0 ? formatMoney($costUah) : '-'; ?></td>
                         <td class="text-end fw-bold"><?php echo formatMoney($pw); ?></td>
                         <td class="text-end fw-bold"><?php echo formatMoney($ps); ?></td>

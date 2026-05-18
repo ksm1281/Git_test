@@ -28,7 +28,7 @@ $recentOrders = $stmt->fetchAll();
 $stmt = $pdo->query("SELECT r.*, p.name as product_name FROM erp_returns r LEFT JOIN erp_products p ON r.product_id = p.product_id WHERE r.status = 'pending' ORDER BY r.date_added DESC LIMIT 10");
 $pendingReturns = $stmt->fetchAll();
 
-$rate = getCurrentRate($pdo);
+$rates = getCurrentRates($pdo);
 $markups = getDefaultMarkups($pdo);
 
 include __DIR__ . '/includes/header.php';
@@ -37,7 +37,7 @@ include __DIR__ . '/includes/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-speedometer2"></i> Дашборд</h4>
     <div class="text-muted small">
-        <i class="bi bi-currency-exchange"></i> Курс USD/UAH: <strong><?php echo number_format($rate, 2, '.', ' '); ?></strong>
+        <i class="bi bi-currency-exchange"></i> Курс: USD <strong><?php echo number_format($rates['USD'], 2, '.', ' '); ?></strong> / EUR <strong><?php echo number_format($rates['EUR'], 2, '.', ' '); ?></strong>
         <span class="ms-3"><i class="bi bi-calendar3"></i> <?php echo date('d.m.Y'); ?></span>
     </div>
 </div>

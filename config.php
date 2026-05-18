@@ -20,7 +20,7 @@ define('APP_NAME', 'ERP/CRM');
 define('APP_VERSION', '1.0.0');
 define('CURRENCY_SYMBOL', '&#8372;');
 define('CURRENCY_CODE', 'UAH');
-define('BASE_CURRENCY', 'USD');
+define('BASE_CURRENCY', 'UAH');
 
 // Paths
 define('BASE_PATH', dirname(__FILE__));
@@ -405,6 +405,47 @@ function getProductStock($pdo, $productId) {
     return (float)$result['stock'];
 }
 
+function getCurrentRates($pdo) {
+    $result = ['USD' => 1, 'EUR' => 1];
+    foreach (['USD', 'EUR'] as $cur) {
+        $stmt = $pdo->prepare("SELECT rate FROM erp_exchange_rates WHERE currency_from = ? AND currency_to = 'UAH' ORDER BY date_added DESC LIMIT 1");
+        $stmt->execute([$cur]);
+        $row = $stmt->fetch();
+        if ($row) $result[$cur] = (float)$row['rate'];
+    }
+    return $result;
+}
+
+function updateOutOfStockPrices($pdo) {
+    $rates = getCurrentRates($pdo);
+    $markups = getDefaultMarkups($pdo);
+    $stmt = $pdo->query("
+        SELECT p.product_id,
+            COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
+            COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock,
+            COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'USD') as purchase_currency
+        FROM erp_products p
+        LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id
+        GROUP BY p.product_id
+    ");
+    $products = $stmt->fetchAll();
+    $updated = 0;
+    foreach ($products as $p) {
+        if ((float)$p['stock'] > 0 && (float)$p['avg_cost'] > 0) continue;
+        $rate = $rates[$p['purchase_currency']] ?? $rates['USD'];
+        $costUsd = (float)$p['avg_cost'];
+        $costUah = $costUsd * $rate;
+        if ($costUah <= 0) continue;
+        $pw = calculatePrice($costUah, $markups['default_markup_wholesale']);
+        $ps = calculatePrice($costUah, $markups['default_markup_semi_wholesale']);
+        $pr = calculatePrice($costUah, $markups['default_markup_retail']);
+        $stmt2 = $pdo->prepare("UPDATE erp_products SET price_wholesale = ?, price_semi_wholesale = ?, price_retail = ? WHERE product_id = ?");
+        $stmt2->execute([$pw, $ps, $pr, $p['product_id']]);
+        $updated++;
+    }
+    return $updated;
+}
+
 function fetchPrivatBankRate($pdo) {
     $url = 'https://api.privatbank.ua/p24api/pubinfo?json&exchange&coursid=5';
     $context = stream_context_create(['http' => ['timeout' => 10, 'header' => 'User-Agent: ERP-CRM/1.0']]);
@@ -414,13 +455,14 @@ function fetchPrivatBankRate($pdo) {
     $data = json_decode($response, true);
     if (!$data) return false;
 
+    $found = false;
     foreach ($data as $row) {
-        if ($row['ccy'] === 'USD' && $row['base_ccy'] === 'UAH') {
+        if ($row['base_ccy'] === 'UAH' && in_array($row['ccy'], ['USD', 'EUR'])) {
             $rate = (float)$row['buy'];
-            $stmt = $pdo->prepare("INSERT INTO erp_exchange_rates (currency_from, currency_to, rate, source) VALUES ('USD', 'UAH', ?, 'privatbank')");
-            $stmt->execute([$rate]);
-            return $rate;
+            $stmt = $pdo->prepare("INSERT INTO erp_exchange_rates (currency_from, currency_to, rate, source) VALUES (?, 'UAH', ?, 'privatbank')");
+            $stmt->execute([$row['ccy'], $rate]);
+            $found = true;
         }
     }
-    return false;
+    return $found;
 }
