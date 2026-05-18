@@ -103,6 +103,23 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <?php
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['action']) && $_GET['action'] === 'pay' && isManager()) {
+    $orderId = (int)$_GET['id'];
+    $amount = (float)($_POST['amount'] ?? 0);
+    $method = $_POST['method'] ?? 'cash';
+    $date = $_POST['date'] ?? date('Y-m-d');
+    $notes = trim($_POST['notes'] ?? '');
+
+    if ($amount > 0 && in_array($method, ['cash', 'card', 'fop', 'invoice'])) {
+        $stmt = $pdo->prepare("INSERT INTO erp_payments (order_id, amount, method, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$orderId, $amount, $method, $date, $notes, $user['user_id']]);
+        flashMessage('success', 'Платіж на ' . formatMoney($amount) . ' зареєстровано');
+    } else {
+        flashMessage('error', 'Некоректна сума або метод оплати');
+    }
+    redirect(BASE_URL . '/modules/orders.php?action=view&id=' . $orderId);
+}
+
 if (isset($_GET['action']) && $_GET['action'] === 'view') {
     $orderId = (int)$_GET['id'];
     $stmt = $pdo->prepare("SELECT * FROM erp_orders WHERE order_id = ?");
@@ -113,6 +130,15 @@ if (isset($_GET['action']) && $_GET['action'] === 'view') {
     $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id = ?");
     $stmt->execute([$orderId]);
     $items = $stmt->fetchAll();
+
+    $stmt = $pdo->prepare("SELECT * FROM erp_payments WHERE order_id = ? ORDER BY date_added ASC");
+    $stmt->execute([$orderId]);
+    $payments = $stmt->fetchAll();
+    $totalPaid = 0;
+    foreach ($payments as $pmt) { $totalPaid += (float)$pmt['amount']; }
+    $balance = (float)$order['total'] - $totalPaid;
+
+    $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок'];
 ?>
     <div class="card mt-3">
         <div class="card-header d-flex justify-content-between align-items-center">
@@ -171,6 +197,87 @@ if (isset($_GET['action']) && $_GET['action'] === 'view') {
                         </tr>
                     </tfoot>
                 </table>
+            </div>
+
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Оплати</div>
+                        <div class="card-body p-0">
+                            <?php if (count($payments) > 0): ?>
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Дата</th>
+                                        <th>Метод</th>
+                                        <th class="text-end">Сума</th>
+                                        <th>Примітка</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($payments as $pmt): ?>
+                                    <tr>
+                                        <td><?php echo formatDateShort($pmt['date']); ?></td>
+                                        <td><?php echo $methodLabels[$pmt['method']] ?? $pmt['method']; ?></td>
+                                        <td class="text-end fw-bold text-success"><?php echo formatMoney($pmt['amount']); ?></td>
+                                        <td><?php echo escape($pmt['notes'] ?: '-'); ?></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                                <tfoot>
+                                    <tr class="fw-bold">
+                                        <td colspan="2">Сплачено</td>
+                                        <td class="text-end text-success"><?php echo formatMoney($totalPaid); ?></td>
+                                        <td></td>
+                                    </tr>
+                                    <tr class="fw-bold <?php echo $balance > 0 ? 'text-danger' : 'text-success'; ?>">
+                                        <td colspan="2">Залишок</td>
+                                        <td class="text-end"><?php echo formatMoney($balance); ?></td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                            <?php else: ?>
+                            <div class="text-center py-3 text-muted">Оплат ще немає</div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Додати оплату</div>
+                        <div class="card-body">
+                            <form method="post" action="?action=pay&id=<?php echo $orderId; ?>">
+                                <div class="row g-2">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Сума</label>
+                                        <input type="number" name="amount" class="form-control" step="0.01" min="0.01" max="<?php echo $balance > 0 ? $balance : 0; ?>" required>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Метод</label>
+                                        <select name="method" class="form-select">
+                                            <option value="cash">Готівка</option>
+                                            <option value="card">Картка</option>
+                                            <option value="fop">ФОП</option>
+                                            <option value="invoice">Рахунок</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Дата</label>
+                                        <input type="date" name="date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">Примітка</label>
+                                        <input type="text" name="notes" class="form-control" placeholder="Опис платежу">
+                                    </div>
+                                    <div class="col-12">
+                                        <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-cash"></i> Додати платіж</button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

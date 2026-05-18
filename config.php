@@ -262,6 +262,19 @@ function initErpTables($pdo) {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `erp_payments` (
+            `payment_id` INT AUTO_INCREMENT PRIMARY KEY,
+            `order_id` INT NOT NULL,
+            `amount` DECIMAL(15,4) NOT NULL,
+            `method` ENUM('cash','card','fop','invoice') NOT NULL DEFAULT 'cash',
+            `date` DATE NOT NULL,
+            `notes` TEXT,
+            `user_id` INT,
+            `date_added` DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     $stmt = $pdo->query("SELECT COUNT(*) FROM erp_users");
     if ($stmt->fetchColumn() == 0) {
         $hash = password_hash('admin', PASSWORD_DEFAULT);
