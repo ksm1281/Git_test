@@ -6,10 +6,14 @@ session_start();
 // =====================================================
 
 // ERP Database Configuration
-define('DB_HOST', 'localhost');
-define('DB_USER', 'your_erp_db_user');
-define('DB_PASS', 'your_erp_db_pass');
-define('DB_NAME', 'your_erp_db_name');
+if (file_exists(__DIR__ . '/config.local.php')) {
+    require_once __DIR__ . '/config.local.php';
+} else {
+    define('DB_HOST', 'localhost');
+    define('DB_USER', 'your_erp_db_user');
+    define('DB_PASS', 'your_erp_db_pass');
+    define('DB_NAME', 'your_erp_db_name');
+}
 
 // OpenCart API Configuration
 define('OC_API_URL', 'https://your-opencart-store.com/index.php?route=api/');
@@ -303,6 +307,8 @@ function initErpTables($pdo) {
             `date_added` DATETIME DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+
+    try { $pdo->exec("ALTER TABLE erp_payments CHANGE COLUMN order_id invoice_id INT NOT NULL"); } catch (PDOException $e) { /* ignore */ }
 
     $stmt = $pdo->query("SELECT COUNT(*) FROM erp_cash_accounts");
     if ($stmt->fetchColumn() == 0) {

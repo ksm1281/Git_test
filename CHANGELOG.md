@@ -7,7 +7,8 @@
 - **modules/stock.php**: додано пропущений `<?php endforeach; ?>` — виправлено синтаксичну помилку PHP (Parse error: unexpected else)
 
 ### Додано
-- **config.php**: додано таблиці `erp_payments`, `erp_cash_accounts`, `erp_transactions`
+- **config.local.php**: окремий файл для даних БД (не відстежується git, не затирається)
+- **config.php**: тепер підключає `config.local.php` якщо існує; додано таблиці `erp_payments`, `erp_cash_accounts`, `erp_transactions`
 - **includes/header.php**: додано пункт меню "Фінанси"
 - **modules/suppliers.php**: додано колонку "Борг (UAH)" у списку постачальників
 - **modules/stock.php**: кнопка "Додати товар" на сторінці Складу (перенесено з pricing.php)
