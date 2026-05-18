@@ -66,6 +66,73 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId) {
+    $stmt = $pdo->prepare("SELECT status FROM erp_incoming_invoices WHERE invoice_id = ?");
+    $stmt->execute([$invoiceId]);
+    $inv = $stmt->fetch();
+    if (!$inv || $inv['status'] !== 'draft') {
+        flashMessage('error', 'Можна редагувати тільки чернетки');
+        redirect(BASE_URL . '/modules/incoming.php');
+    }
+
+    $supplierId = (int)($_POST['supplier_id'] ?? 0);
+    $invoiceNumber = trim($_POST['invoice_number'] ?? '');
+    $date = $_POST['date'] ?? date('Y-m-d');
+    $currency = $_POST['currency'] ?? 'USD';
+    $rate = $currency === 'UAH' ? 1 : (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo));
+    $notes = trim($_POST['notes'] ?? '');
+
+    if (!$supplierId || empty($invoiceNumber)) {
+        flashMessage('error', 'Заповніть обов\'язкові поля');
+        redirect(BASE_URL . '/modules/incoming.php?action=edit&id=' . $invoiceId);
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("UPDATE erp_incoming_invoices SET invoice_number=?, supplier_id=?, date=?, currency=?, exchange_rate=?, notes=? WHERE invoice_id=?")
+            ->execute([$invoiceNumber, $supplierId, $date, $currency, $rate, $notes, $invoiceId]);
+
+        $pdo->prepare("DELETE FROM erp_invoice_items WHERE invoice_id = ?")->execute([$invoiceId]);
+        $pdo->prepare("DELETE FROM erp_stock_moves WHERE reference_type = 'invoice' AND reference_id = ?")->execute([$invoiceId]);
+
+        $productIds = $_POST['product_id'] ?? [];
+        $quantities = $_POST['quantity'] ?? [];
+        $pricesForeign = $_POST['price_foreign'] ?? [];
+
+        $totalForeign = 0;
+        $totalLocal = 0;
+
+        for ($i = 0; $i < count($productIds); $i++) {
+            $pid = (int)$productIds[$i];
+            $qty = (float)($quantities[$i] ?? 0);
+            $pf = (float)($pricesForeign[$i] ?? 0);
+            if ($pid <= 0 || $qty <= 0) continue;
+
+            $tf = $qty * $pf;
+            $tl = $tf * $rate;
+            $totalForeign += $tf;
+            $totalLocal += $tl;
+
+            $stmt = $pdo->prepare("INSERT INTO erp_invoice_items (invoice_id, product_id, quantity, price_foreign, price_local, total_foreign, total_local) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$invoiceId, $pid, $qty, $pf, $pf * $rate, $tf, $tl]);
+
+            $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, user_id, notes) VALUES (?, 'in', ?, ?, 'invoice', ?, ?, ?)");
+            $stmt->execute([$pid, $qty, $pf, $invoiceId, $user['user_id'], 'Накладна ' . $invoiceNumber]);
+        }
+
+        $pdo->prepare("UPDATE erp_incoming_invoices SET total_foreign = ?, total_local = ? WHERE invoice_id = ?")
+            ->execute([$totalForeign, $totalLocal, $invoiceId]);
+
+        $pdo->commit();
+        flashMessage('success', 'Накладну #' . $invoiceNumber . ' оновлено');
+        redirect(BASE_URL . '/modules/incoming.php');
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        flashMessage('error', 'Помилка: ' . $e->getMessage());
+        redirect(BASE_URL . '/modules/incoming.php?action=edit&id=' . $invoiceId);
+    }
+}
+
 if ($action === 'confirm' && $invoiceId) {
     $pdo->prepare("UPDATE erp_incoming_invoices SET status = 'confirmed' WHERE invoice_id = ?")->execute([$invoiceId]);
     flashMessage('success', 'Накладну підтверджено');
@@ -95,6 +162,7 @@ if ($action === 'view' && $invoiceId) {
         <div>
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> Назад</a>
             <?php if ($invoice['status'] === 'draft'): ?>
+            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=edit&id=<?php echo $invoiceId; ?>" class="btn btn-warning btn-sm"><i class="bi bi-pencil"></i> Редагувати</a>
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=confirm&id=<?php echo $invoiceId; ?>" class="btn btn-success btn-sm" onclick="return confirm('Підтвердити накладну?')"><i class="bi bi-check-lg"></i> Підтвердити</a>
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=cancel&id=<?php echo $invoiceId; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Скасувати накладну?')"><i class="bi bi-x-lg"></i> Скасувати</a>
             <?php endif; ?>
@@ -166,46 +234,69 @@ if ($action === 'view' && $invoiceId) {
     exit;
 }
 
-if ($action === 'create') {
+if ($action === 'create' || $action === 'edit') {
     $stmt = $pdo->query("SELECT * FROM erp_suppliers WHERE status = 1 ORDER BY name ASC");
     $suppliers = $stmt->fetchAll();
     $stmt = $pdo->query("SELECT product_id, name, model, sku FROM erp_products WHERE status = 1 ORDER BY name ASC LIMIT 500");
     $products = $stmt->fetchAll();
+
+    $isEdit = ($action === 'edit' && $invoiceId);
+    $invoice = [];
+    $items = [];
     $rate = getCurrentRate($pdo);
+
+    if ($isEdit) {
+        $stmt = $pdo->prepare("SELECT * FROM erp_incoming_invoices WHERE invoice_id = ? AND status = 'draft'");
+        $stmt->execute([$invoiceId]);
+        $invoice = $stmt->fetch();
+        if (!$invoice) {
+            flashMessage('error', 'Накладну не знайдено або вона не є чернеткою');
+            redirect(BASE_URL . '/modules/incoming.php');
+        }
+        $stmt = $pdo->prepare("SELECT * FROM erp_invoice_items WHERE invoice_id = ?");
+        $stmt->execute([$invoiceId]);
+        $items = $stmt->fetchAll();
+        $rate = $invoice['currency'] === 'UAH' ? 1 : $invoice['exchange_rate'];
+    }
+
+    $formAction = $isEdit ? 'update&id=' . $invoiceId : 'create';
+    $title = $isEdit ? 'Редагування накладної #' . escape($invoice['invoice_number']) : 'Нова прихідна накладна';
+    $submitLabel = $isEdit ? 'Зберегти зміни' : 'Створити накладну';
+
     include __DIR__ . '/../includes/header.php';
     ?>
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="mb-0"><i class="bi bi-receipt"></i> Нова прихідна накладна</h4>
+        <h4 class="mb-0"><i class="bi bi-receipt"></i> <?php echo $title; ?></h4>
         <a href="<?php echo BASE_URL; ?>/modules/incoming.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x-lg"></i> Скасувати</a>
     </div>
     <div class="card">
         <div class="card-header">Дані накладної</div>
         <div class="card-body">
-            <form method="post" id="invoiceForm">
+            <form method="post" action="?action=<?php echo $formAction; ?>" id="invoiceForm">
                 <div class="row g-3 mb-3">
                     <div class="col-md-3">
                         <label class="form-label required">Номер накладної</label>
-                        <input type="text" name="invoice_number" class="form-control" required>
+                        <input type="text" name="invoice_number" class="form-control" required value="<?php echo $isEdit ? escape($invoice['invoice_number']) : ''; ?>">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label required">Постачальник</label>
                         <select name="supplier_id" class="form-select" required>
                             <option value="">-- Виберіть --</option>
                             <?php foreach ($suppliers as $s): ?>
-                            <option value="<?php echo $s['supplier_id']; ?>"><?php echo escape($s['name']); ?></option>
+                            <option value="<?php echo $s['supplier_id']; ?>" <?php echo $isEdit && $invoice['supplier_id'] == $s['supplier_id'] ? 'selected' : ''; ?>><?php echo escape($s['name']); ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">Дата</label>
-                        <input type="date" name="date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                        <input type="date" name="date" class="form-control" value="<?php echo $isEdit ? $invoice['date'] : date('Y-m-d'); ?>">
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">Валюта</label>
                         <select name="currency" class="form-select" id="currency">
-                            <option value="USD">USD</option>
-                            <option value="EUR">EUR</option>
-                            <option value="UAH">UAH</option>
+                            <option value="USD" <?php echo $isEdit && $invoice['currency'] === 'USD' ? 'selected' : ''; ?>>USD</option>
+                            <option value="EUR" <?php echo $isEdit && $invoice['currency'] === 'EUR' ? 'selected' : ''; ?>>EUR</option>
+                            <option value="UAH" <?php echo $isEdit && $invoice['currency'] === 'UAH' ? 'selected' : ''; ?>>UAH</option>
                         </select>
                     </div>
                     <div class="col-md-2">
@@ -215,7 +306,7 @@ if ($action === 'create') {
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Примітки</label>
-                    <textarea name="notes" class="form-control" rows="2"></textarea>
+                    <textarea name="notes" class="form-control" rows="2"><?php echo $isEdit ? escape($invoice['notes']) : ''; ?></textarea>
                 </div>
 
                 <h6 class="fw-bold mb-2">Товари</h6>
@@ -225,12 +316,30 @@ if ($action === 'create') {
                             <tr>
                                 <th style="width:40%;">Товар</th>
                                 <th style="width:15%;">Кількість</th>
-                                <th style="width:20%;">Ціна (USD)</th>
-                                <th style="width:20%;">Сума (USD)</th>
+                                <th style="width:20%;">Ціна (<?php echo $isEdit ? $invoice['currency'] : 'USD'; ?>)</th>
+                                <th style="width:20%;">Сума</th>
                                 <th style="width:5%;"></th>
                             </tr>
                         </thead>
                         <tbody id="itemsBody">
+                            <?php if ($isEdit && count($items) > 0): ?>
+                                <?php foreach ($items as $item): ?>
+                                <tr>
+                                    <td>
+                                        <select name="product_id[]" class="form-select" required>
+                                            <option value="">-- Виберіть --</option>
+                                            <?php foreach ($products as $p): ?>
+                                            <option value="<?php echo $p['product_id']; ?>" <?php echo $item['product_id'] == $p['product_id'] ? 'selected' : ''; ?>><?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </td>
+                                    <td><input type="number" name="quantity[]" class="form-control" step="0.01" min="0.01" required value="<?php echo (float)$item['quantity']; ?>"></td>
+                                    <td><input type="number" name="price_foreign[]" class="form-control price-foreign" step="0.0001" min="0" required value="<?php echo (float)$item['price_foreign']; ?>"></td>
+                                    <td><span class="line-total fw-bold"><?php echo number_format((float)$item['quantity'] * (float)$item['price_foreign'], 2); ?></span></td>
+                                    <td><button type="button" class="btn btn-outline-danger btn-sm remove-item"><i class="bi bi-trash"></i></button></td>
+                                </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
                             <tr>
                                 <td>
                                     <select name="product_id[]" class="form-select" required>
@@ -245,18 +354,19 @@ if ($action === 'create') {
                                 <td><span class="line-total fw-bold">0.00</span></td>
                                 <td><button type="button" class="btn btn-outline-danger btn-sm remove-item"><i class="bi bi-trash"></i></button></td>
                             </tr>
+                            <?php endif; ?>
                         </tbody>
                         <tfoot>
                             <tr>
                                 <td><button type="button" class="btn btn-sm btn-outline-primary" id="addItem"><i class="bi bi-plus-lg"></i> Додати рядок</button></td>
-                                <td colspan="2" class="text-end fw-bold">Всього (USD):</td>
+                                <td colspan="2" class="text-end fw-bold">Всього:</td>
                                 <td><span id="grandTotal" class="fw-bold">0.00</span></td>
                                 <td></td>
                             </tr>
                         </tfoot>
                     </table>
                 </div>
-                <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Створити накладну</button>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> <?php echo $submitLabel; ?></button>
             </form>
         </div>
     </div>
@@ -347,6 +457,9 @@ include __DIR__ . '/../includes/header.php';
                         <td><?php echo getStatusBadge($inv['status']); ?></td>
                         <td class="text-center">
                             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=view&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a>
+                            <?php if ($inv['status'] === 'draft'): ?>
+                            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=edit&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-warning"><i class="bi bi-pencil"></i></a>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>
