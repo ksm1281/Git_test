@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/_helpers.php';
 requireLogin();
 
 $today = date('Y-m-d');

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../_helpers.php';
 requireLogin();
 
 $page = max(1, (int)($_GET['page'] ?? 1));
