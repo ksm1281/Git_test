@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.0] — 2026-05-19
+
+### Додано
+- **modules/orders.php**: повноцінне створення/редагування замовлень (action=create, edit, save)
+- **modules/orders.php**: реєстрація оплат за замовленнями (action=pay)
+- **modules/orders.php**: зміна статусу з автоматичним списанням/поверненням товару зі складу (action=status)
+- **modules/orders.php**: видалення замовлення адміністратором (action=delete)
+- **modules/orders.php**: колонка "Оплата" у списку замовлень (борг/сплачено)
+- **modules/orders.php**: кнопка "Нове замовлення" у списку
+- **modules/orders.php**: поля Ім'я + Фамілія замість одного "Клієнт"
+- **modules/orders.php**: спосіб доставки (самовивіз, кур'єр, Нова Пошта, Делівері, Укрпошта) + адреса доставки
+- **modules/orders.php**: валідація телефону (pattern +380/0XXXXXXXXX); поле "Примітки" розширено до textarea
+- **modules/orders.php**: додано поле "Дата" у формі; спрощено статус оплати (Оплачено/Не оплачено) у списку
+- **modules/orders.php**: розділено адресу доставки — кур'єр (вулиця, будинок, квартира/офіс) / пошта (місто, відділення) + JS перемикання полів
+- **config.php**: додано колонки `order_date`, `delivery_city`, `delivery_street`, `delivery_building`, `delivery_apartment`, `delivery_office`
+- **config.php**: міграція БД — auto_increment для `erp_orders` та `erp_order_products`; поле `order_id` у `erp_payments`; метод `transfer` у `erp_payments.method`; поля `payment_method`, `delivery_method`, `delivery_address` у `erp_orders`
+
 ## [1.0.0] — 2026-05-18
 
 ### Виправлено

@@ -310,6 +310,38 @@ function initErpTables($pdo) {
 
     try { $pdo->exec("ALTER TABLE erp_payments CHANGE COLUMN order_id invoice_id INT NOT NULL"); } catch (PDOException $e) { /* ignore */ }
 
+    try { $pdo->exec("ALTER TABLE erp_orders MODIFY order_id INT AUTO_INCREMENT"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_order_products MODIFY order_product_id INT AUTO_INCREMENT"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_payments ADD COLUMN order_id INT DEFAULT NULL AFTER invoice_id"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_payments MODIFY COLUMN method ENUM('cash','card','fop','invoice','transfer') NOT NULL DEFAULT 'cash'"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(32) DEFAULT NULL AFTER total"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN payment_method VARCHAR(32) DEFAULT NULL AFTER erp_notes"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_method VARCHAR(32) DEFAULT NULL AFTER payment_method"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_method VARCHAR(32) DEFAULT NULL AFTER payment_method"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_address TEXT DEFAULT NULL AFTER delivery_method"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_address TEXT DEFAULT NULL AFTER delivery_method"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS order_date DATE DEFAULT NULL AFTER delivery_address"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN order_date DATE DEFAULT NULL AFTER delivery_address"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_city VARCHAR(128) DEFAULT NULL AFTER delivery_address"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_city VARCHAR(128) DEFAULT NULL AFTER delivery_address"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_street VARCHAR(255) DEFAULT NULL AFTER delivery_city"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_street VARCHAR(255) DEFAULT NULL AFTER delivery_city"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_building VARCHAR(32) DEFAULT NULL AFTER delivery_street"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_building VARCHAR(32) DEFAULT NULL AFTER delivery_street"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_apartment VARCHAR(64) DEFAULT NULL AFTER delivery_building"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_apartment VARCHAR(64) DEFAULT NULL AFTER delivery_building"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_office VARCHAR(255) DEFAULT NULL AFTER delivery_apartment"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_office VARCHAR(255) DEFAULT NULL AFTER delivery_apartment"); } catch (PDOException $e2) { /* ignore */ }
+    }
+
     $stmt = $pdo->query("SELECT COUNT(*) FROM erp_cash_accounts");
     if ($stmt->fetchColumn() == 0) {
         $pdo->exec("INSERT INTO erp_cash_accounts (name, type, currency) VALUES
