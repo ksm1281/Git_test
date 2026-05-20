@@ -5,19 +5,27 @@ session_start();
 // ERP/CRM Configuration
 // =====================================================
 
-// ERP Database Configuration
+// Load local config first (overrides defaults below)
 if (file_exists(__DIR__ . '/config.local.php')) {
     require_once __DIR__ . '/config.local.php';
-} else {
-    define('DB_HOST', 'localhost');
-    define('DB_USER', 'your_erp_db_user');
-    define('DB_PASS', 'your_erp_db_pass');
-    define('DB_NAME', 'your_erp_db_name');
 }
 
-// OpenCart API Configuration
-define('OC_API_URL', 'https://your-opencart-store.com/index.php?route=api/');
-define('OC_API_KEY', 'your-api-key-here');
+// Database defaults
+if (!defined('DB_HOST')) define('DB_HOST', 'localhost');
+if (!defined('DB_USER')) define('DB_USER', 'your_erp_db_user');
+if (!defined('DB_PASS')) define('DB_PASS', 'your_erp_db_pass');
+if (!defined('DB_NAME')) define('DB_NAME', 'your_erp_db_name');
+
+// OpenCart API defaults
+if (!defined('OC_API_URL')) define('OC_API_URL', 'https://your-opencart-store.com/index.php?route=api/');
+if (!defined('OC_API_KEY')) define('OC_API_KEY', 'your-api-key-here');
+
+// OpenCart Database defaults (альтернатива HTTP API)
+if (!defined('OC_DB_HOST')) define('OC_DB_HOST', 'localhost');
+if (!defined('OC_DB_USER')) define('OC_DB_USER', 'your_oc_db_user');
+if (!defined('OC_DB_PASS')) define('OC_DB_PASS', 'your_oc_db_pass');
+if (!defined('OC_DB_NAME')) define('OC_DB_NAME', 'your_oc_db_name');
+if (!defined('OC_DB_PREFIX')) define('OC_DB_PREFIX', 'oc_');
 
 // App Configuration
 define('APP_NAME', 'ERP/CRM');
@@ -557,7 +565,7 @@ function getProductStock($pdo, $productId) {
 }
 
 function getCurrentRates($pdo) {
-    $result = ['USD' => 1, 'EUR' => 1];
+    $result = ['USD' => 1, 'EUR' => 1, 'UAH' => 1];
     foreach (['USD', 'EUR'] as $cur) {
         $stmt = $pdo->prepare("SELECT rate FROM erp_exchange_rates WHERE currency_from = ? AND currency_to = 'UAH' ORDER BY date_added DESC LIMIT 1");
         $stmt->execute([$cur]);
@@ -574,7 +582,7 @@ function updateOutOfStockPrices($pdo) {
         SELECT p.product_id,
             COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
             COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock,
-            COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'USD') as purchase_currency
+            COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'EUR') as purchase_currency
         FROM erp_products p
         LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id
         GROUP BY p.product_id
@@ -583,9 +591,10 @@ function updateOutOfStockPrices($pdo) {
     $updated = 0;
     foreach ($products as $p) {
         if ((float)$p['stock'] > 0 && (float)$p['avg_cost'] > 0) continue;
-        $rate = $rates[$p['purchase_currency']] ?? $rates['USD'];
-        $costUsd = (float)$p['avg_cost'];
-        $costUah = $costUsd * $rate;
+        $purchaseCur = $p['purchase_currency'] ?: 'EUR';
+        $rate = $rates[$purchaseCur] ?? $rates['EUR'];
+        $costForeign = (float)$p['avg_cost'];
+        $costUah = $costForeign * $rate;
         if ($costUah <= 0) continue;
         $pw = calculatePrice($costUah, $markups['default_markup_wholesale']);
         $ps = calculatePrice($costUah, $markups['default_markup_semi_wholesale']);

@@ -76,7 +76,7 @@ $pagination = paginate($total, $perPage, $page);
 $sql = "SELECT p.*, pr.markup_wholesale, pr.markup_semi_wholesale, pr.markup_retail, pr.use_custom, pr.custom_price_wholesale, pr.custom_price_semi_wholesale, pr.custom_price_retail,
     COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
     COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock_qty,
-    COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'USD') as purchase_currency
+    COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'EUR') as purchase_currency
     FROM erp_products p
     LEFT JOIN erp_pricing_rules pr ON p.product_id = pr.product_id
     LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id
@@ -104,6 +104,7 @@ include __DIR__ . '/../includes/header.php';
         </form>
         <?php if (isAdmin()): ?>
         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#defaultsModal"><i class="bi bi-gear"></i> Налаштування</button>
+        <button class="btn btn-sm btn-outline-info" onclick="syncProducts()"><i class="bi bi-arrow-repeat"></i> Синхр. OC</button>
         <?php endif; ?>
     </div>
 </div>
@@ -166,8 +167,8 @@ include __DIR__ . '/../includes/header.php';
                     <?php foreach ($products as $p): ?>
                     <?php
                         $stockQty = (float)$p['stock_qty'];
-                        $purchaseCur = $p['purchase_currency'] ?: 'USD';
-                        $rate = $rates[$purchaseCur] ?? $rates['USD'];
+                        $purchaseCur = $p['purchase_currency'] ?: 'EUR';
+                        $rate = $rates[$purchaseCur] ?? $rates['EUR'];
                         $costForeign = (float)$p['avg_cost'];
                         $costUah = $costForeign * $rate;
                         $mw = $p['markup_wholesale'] ?? $markups['default_markup_wholesale'];

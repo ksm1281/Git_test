@@ -75,6 +75,31 @@ foreach ($accounts as $acc) {
     $balances[$acc['account_id']] = (float)$acc['initial_balance'] + (float)$row['balance'];
 }
 
+$stmt = $pdo->query("
+    SELECT COALESCE(SUM(i.total_local - COALESCE(p.paid, 0)), 0) as debt
+    FROM erp_incoming_invoices i
+    LEFT JOIN (
+        SELECT invoice_id, SUM(amount) as paid FROM erp_payments WHERE invoice_id IS NOT NULL GROUP BY invoice_id
+    ) p ON i.invoice_id = p.invoice_id
+    WHERE i.status IN ('draft', 'confirmed')
+");
+$supplierDebt = (float)$stmt->fetch()['debt'];
+
+$stmt = $pdo->query("
+    SELECT COALESCE(SUM(o.total - COALESCE(p.paid, 0)), 0) as debt
+    FROM erp_orders o
+    LEFT JOIN (
+        SELECT order_id, SUM(amount) as paid FROM erp_payments WHERE order_id IS NOT NULL GROUP BY order_id
+    ) p ON o.order_id = p.order_id
+");
+$customerDebt = (float)$stmt->fetch()['debt'];
+
+$stmt = $pdo->query("SELECT s.supplier_id, s.name,
+    COALESCE((SELECT SUM(i.total_local) FROM erp_incoming_invoices i WHERE i.supplier_id = s.supplier_id AND i.status IN ('draft', 'confirmed')), 0) as invoice_total,
+    COALESCE((SELECT SUM(p.amount) FROM erp_payments p JOIN erp_incoming_invoices i ON p.invoice_id = i.invoice_id WHERE i.supplier_id = s.supplier_id), 0) as payment_total
+    FROM erp_suppliers s WHERE s.status = 1 ORDER BY s.name ASC");
+$suppliersDebt = $stmt->fetchAll();
+
 $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок', 'transfer' => 'Переказ'];
 $typeLabels = ['in' => 'Надходження', 'out' => 'Витрата', 'transfer' => 'Переказ'];
 
@@ -105,6 +130,56 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
     <?php endforeach; ?>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center py-2">
+                <span><i class="bi bi-truck"></i> Борг постачальникам</span>
+                <a href="<?php echo BASE_URL; ?>/modules/suppliers.php" class="btn btn-sm btn-outline-light">Деталі</a>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr><th>Постачальник</th><th class="text-end">Борг (UAH)</th></tr>
+                    </thead>
+                    <tbody>
+                        <?php $totalSupDebt = 0; foreach ($suppliersDebt as $s):
+                            $sd = (float)$s['invoice_total'] - (float)$s['payment_total'];
+                            $totalSupDebt += $sd;
+                            if ($sd <= 0) continue;
+                        ?>
+                        <tr>
+                            <td><?php echo escape($s['name']); ?></td>
+                            <td class="text-end text-danger fw-bold"><?php echo formatMoney($sd); ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                        <?php if ($totalSupDebt <= 0): ?>
+                        <tr><td colspan="2" class="text-center text-muted py-2">Боргів немає</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                    <tfoot>
+                        <tr class="fw-bold"><td>Разом</td><td class="text-end text-danger"><?php echo formatMoney($supplierDebt); ?></td></tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-success">
+            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center py-2">
+                <span><i class="bi bi-people"></i> Борг нам (клієнти)</span>
+                <a href="<?php echo BASE_URL; ?>/modules/orders.php" class="btn btn-sm btn-outline-light">Деталі</a>
+            </div>
+            <div class="card-body p-0">
+                <div class="text-center py-4">
+                    <div class="fs-3 fw-bold <?php echo $customerDebt > 0 ? 'text-success' : 'text-muted'; ?>"><?php echo formatMoney($customerDebt); ?></div>
+                    <small class="text-muted">Загальна сума несплачених замовлень</small>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="card">

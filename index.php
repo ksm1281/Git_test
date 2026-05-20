@@ -20,6 +20,25 @@ $todayOrders = $stmt->fetch()['total'];
 $stmt = $pdo->query("SELECT COALESCE(SUM(total), 0) as total FROM erp_orders WHERE DATE(date_added) = '$today'");
 $todayRevenue = (float)$stmt->fetch()['total'];
 
+$stmt = $pdo->query("
+    SELECT COALESCE(SUM(i.total_local - COALESCE(p.paid, 0)), 0) as debt
+    FROM erp_incoming_invoices i
+    LEFT JOIN (
+        SELECT invoice_id, SUM(amount) as paid FROM erp_payments WHERE invoice_id IS NOT NULL GROUP BY invoice_id
+    ) p ON i.invoice_id = p.invoice_id
+    WHERE i.status IN ('draft', 'confirmed')
+");
+$supplierDebt = (float)$stmt->fetch()['debt'];
+
+$stmt = $pdo->query("
+    SELECT COALESCE(SUM(o.total - COALESCE(p.paid, 0)), 0) as debt
+    FROM erp_orders o
+    LEFT JOIN (
+        SELECT order_id, SUM(amount) as paid FROM erp_payments WHERE order_id IS NOT NULL GROUP BY order_id
+    ) p ON o.order_id = p.order_id
+");
+$customerDebt = (float)$stmt->fetch()['debt'];
+
 $stmt = $pdo->query("SELECT p.product_id, p.name, COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock FROM erp_products p LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id GROUP BY p.product_id HAVING stock <= 5 ORDER BY stock ASC LIMIT 10");
 $lowStock = $stmt->fetchAll();
 
@@ -67,6 +86,23 @@ include __DIR__ . '/includes/header.php';
             <i class="bi bi-cart3 stat-icon"></i>
             <div class="stat-value"><?php echo $todayOrders; ?></div>
             <div class="stat-label">Замовлень сьогодні</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3 col-6">
+        <div class="stat-card bg-danger text-white position-relative">
+            <i class="bi bi-truck stat-icon"></i>
+            <div class="stat-value"><?php echo formatMoney($supplierDebt); ?></div>
+            <div class="stat-label">Борг постачальникам</div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="stat-card bg-success text-white position-relative">
+            <i class="bi bi-people stat-icon"></i>
+            <div class="stat-value"><?php echo formatMoney($customerDebt); ?></div>
+            <div class="stat-label">Борг нам (клієнти)</div>
         </div>
     </div>
 </div>

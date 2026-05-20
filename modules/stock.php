@@ -140,6 +140,18 @@ include __DIR__ . '/../includes/header.php';
         <?php if (isManager()): ?>
         <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#createProductModal"><i class="bi bi-plus-lg"></i> Додати товар</button>
         <?php endif; ?>
+        <?php if (isAdmin()): ?>
+        <button class="btn btn-sm btn-outline-info" id="syncBtn" onclick="syncProducts()"><i class="bi bi-arrow-repeat"></i> Синхр. OC</button>
+        <button class="btn btn-sm btn-outline-info" onclick="document.getElementById('syncOneWrap').classList.toggle('d-none')"><i class="bi bi-search"></i> OC по ID</button>
+        <?php endif; ?>
+    </div>
+</div>
+
+<div class="d-none mb-3" id="syncOneWrap">
+    <div class="input-group" style="max-width:400px;">
+        <span class="input-group-text">OC ID</span>
+        <input type="text" id="syncOneId" class="form-control" placeholder="Введіть ID товару" inputmode="numeric">
+        <button class="btn btn-outline-info" onclick="syncOneProduct()">Синхронізувати</button>
     </div>
 </div>
 

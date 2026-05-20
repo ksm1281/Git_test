@@ -13,8 +13,8 @@ if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $supplierId = (int)($_POST['supplier_id'] ?? 0);
     $invoiceNumber = trim($_POST['invoice_number'] ?? '');
     $date = $_POST['date'] ?? date('Y-m-d');
-    $currency = $_POST['currency'] ?? 'USD';
-    $rate = $currency === 'UAH' ? 1 : (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo));
+    $currency = $_POST['currency'] ?? 'UAH';
+    $rate = $currency === 'UAH' ? 1 : (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo, $currency));
     $notes = trim($_POST['notes'] ?? '');
     $colName = (int)($_POST['col_name'] ?? 1);
     $colSku = (int)($_POST['col_sku'] ?? 0);
@@ -161,8 +161,8 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $supplierId = (int)($_POST['supplier_id'] ?? 0);
     $invoiceNumber = trim($_POST['invoice_number'] ?? '');
     $date = $_POST['date'] ?? date('Y-m-d');
-    $currency = $_POST['currency'] ?? 'USD';
-    $rate = $currency === 'UAH' ? 1 : (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo));
+    $currency = $_POST['currency'] ?? 'UAH';
+    $rate = $currency === 'UAH' ? 1 : (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo, $currency));
     $notes = trim($_POST['notes'] ?? '');
 
     if (!$supplierId || empty($invoiceNumber)) {
@@ -226,8 +226,8 @@ if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId)
     $supplierId = (int)($_POST['supplier_id'] ?? 0);
     $invoiceNumber = trim($_POST['invoice_number'] ?? '');
     $date = $_POST['date'] ?? date('Y-m-d');
-    $currency = $_POST['currency'] ?? 'USD';
-    $rate = $currency === 'UAH' ? 1 : (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo));
+    $currency = $_POST['currency'] ?? 'UAH';
+    $rate = $currency === 'UAH' ? 1 : (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo, $currency));
     $notes = trim($_POST['notes'] ?? '');
 
     if (!$supplierId || empty($invoiceNumber)) {
@@ -352,7 +352,7 @@ if ($action === 'view' && $invoiceId) {
                 <div class="card-header">Сума</div>
                 <div class="card-body">
                     <table class="table table-sm mb-0">
-                        <tr><td>Сума (USD)</td><td class="fw-bold"><?php echo formatMoneyForeign($invoice['total_foreign']); ?></td></tr>
+                        <tr><td>Сума (<?php echo escape($invoice['currency']); ?>)</td><td class="fw-bold"><?php echo formatMoneyForeign($invoice['total_foreign'], $invoice['currency']); ?></td></tr>
                         <tr><td>Сума (UAH)</td><td class="fw-bold"><?php echo formatMoney($invoice['total_local']); ?></td></tr>
                     </table>
                 </div>
@@ -365,7 +365,7 @@ if ($action === 'view' && $invoiceId) {
             <div class="table-container">
                 <table class="table table-hover mb-0">
                     <thead>
-                        <tr><th>Товар</th><th>К-сть</th><th class="text-end">Ціна (USD)</th><th class="text-end">Ціна (UAH)</th><th class="text-end">Сума (USD)</th><th class="text-end">Сума (UAH)</th></tr>
+                        <tr><th>Товар</th><th>К-сть</th><th class="text-end">Ціна (<?php echo escape($invoice['currency']); ?>)</th><th class="text-end">Ціна (UAH)</th><th class="text-end">Сума (<?php echo escape($invoice['currency']); ?>)</th><th class="text-end">Сума (UAH)</th></tr>
                     </thead>
                     <tbody>
                         <?php foreach ($items as $item): ?>
@@ -484,7 +484,7 @@ if ($action === 'create' || $action === 'edit') {
     $isEdit = ($action === 'edit' && $invoiceId);
     $invoice = [];
     $items = [];
-    $rate = getCurrentRate($pdo);
+    $rate = getCurrentRate($pdo, 'EUR');
 
     if ($isEdit) {
         $stmt = $pdo->prepare("SELECT * FROM erp_incoming_invoices WHERE invoice_id = ? AND status = 'draft'");
@@ -540,9 +540,9 @@ if ($action === 'create' || $action === 'edit') {
                         <div class="col-md-2">
                             <label class="form-label">Валюта</label>
                             <select name="currency" class="form-select">
-                                <option value="USD">USD</option>
+                                <option value="UAH" selected>UAH</option>
                                 <option value="EUR">EUR</option>
-                                <option value="UAH">UAH</option>
+                                <option value="USD">USD</option>
                             </select>
                         </div>
                         <div class="col-md-2">
@@ -616,9 +616,9 @@ if ($action === 'create' || $action === 'edit') {
                     <div class="col-md-2">
                         <label class="form-label">Валюта</label>
                         <select name="currency" class="form-select" id="currency">
-                            <option value="USD" <?php echo $isEdit && $invoice['currency'] === 'USD' ? 'selected' : ''; ?>>USD</option>
-                            <option value="EUR" <?php echo $isEdit && $invoice['currency'] === 'EUR' ? 'selected' : ''; ?>>EUR</option>
                             <option value="UAH" <?php echo $isEdit && $invoice['currency'] === 'UAH' ? 'selected' : ''; ?>>UAH</option>
+                            <option value="EUR" <?php echo $isEdit && $invoice['currency'] === 'EUR' ? 'selected' : ''; ?>>EUR</option>
+                            <option value="USD" <?php echo $isEdit && $invoice['currency'] === 'USD' ? 'selected' : ''; ?>>USD</option>
                         </select>
                     </div>
                     <div class="col-md-2">
@@ -638,7 +638,7 @@ if ($action === 'create' || $action === 'edit') {
                             <tr>
                                 <th style="width:40%;">Товар</th>
                                 <th style="width:15%;">Кількість</th>
-                                <th style="width:20%;">Ціна (<?php echo $isEdit ? $invoice['currency'] : 'USD'; ?>)</th>
+                                <th style="width:20%;">Ціна (<?php echo $isEdit ? $invoice['currency'] : 'UAH'; ?>)</th>
                                 <th style="width:20%;">Сума</th>
                                 <th style="width:5%;"></th>
                             </tr>
@@ -761,7 +761,7 @@ include __DIR__ . '/../includes/header.php';
                         <th>Номер</th>
                         <th>Постачальник</th>
                         <th>Дата</th>
-                        <th class="text-end">Сума (USD)</th>
+                        <th class="text-end">Сума (валюта)</th>
                         <th class="text-end">Сума (UAH)</th>
                         <th>Статус</th>
                         <th class="text-center">Дії</th>
@@ -774,7 +774,7 @@ include __DIR__ . '/../includes/header.php';
                         <td><a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=view&id=<?php echo $inv['invoice_id']; ?>"><?php echo escape($inv['invoice_number']); ?></a></td>
                         <td><?php echo escape($inv['supplier_name'] ?: '-'); ?></td>
                         <td><?php echo formatDateShort($inv['date']); ?></td>
-                        <td class="text-end"><?php echo formatMoneyForeign($inv['total_foreign']); ?></td>
+                        <td class="text-end"><?php echo formatMoneyForeign($inv['total_foreign'], $inv['currency']); ?></td>
                         <td class="text-end"><?php echo formatMoney($inv['total_local']); ?></td>
                         <td><?php echo getStatusBadge($inv['status']); ?></td>
                         <td class="text-center">
