@@ -8,17 +8,26 @@ function getActiveNav($page) {
 
 if (!function_exists('getStatusBadge')) {
 function getStatusBadge($status) {
+    $status = strtolower($status);
     $classes = [
         'pending' => 'bg-warning text-dark',
         'approved' => 'bg-info',
-        'rejected' => 'bg-danger',
-        'processed' => 'bg-success',
-        'draft' => 'bg-secondary',
-        'confirmed' => 'bg-success',
+        'processed' => 'bg-primary',
+        'shipped' => 'bg-secondary',
+        'delivered' => 'bg-success',
         'cancelled' => 'bg-danger',
     ];
+    $labels = [
+        'pending' => 'Очікує',
+        'approved' => 'Підтверджено',
+        'processed' => 'В обробці',
+        'shipped' => 'Відправлено',
+        'delivered' => 'Доставлено',
+        'cancelled' => 'Скасовано',
+    ];
     $class = $classes[$status] ?? 'bg-secondary';
-    return '<span class="badge ' . $class . '">' . (function_exists('escape') ? escape(ucfirst($status)) : ucfirst($status)) . '</span>';
+    $label = $labels[$status] ?? $status;
+    return '<span class="badge ' . $class . '">' . (function_exists('escape') ? escape($label) : $label) . '</span>';
 }
 }
 
@@ -63,5 +72,65 @@ function renderPagination($baseUrl, $pagination) {
     $html .= '<a class="page-link" href="' . $baseUrl . '&page=' . ($pagination['current_page'] + 1) . '">&raquo;</a></li>';
     $html .= '</ul></nav>';
     return $html;
+}
+}
+
+if (!function_exists('monthName')) {
+function monthName($m) {
+    $months = ['', 'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня', 'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'];
+    return $months[(int)$m] ?? '';
+}
+}
+
+if (!function_exists('num2str')) {
+function num2str($num) {
+    $num = round($num, 2);
+    $hryvnia = floor($num);
+    $kopiyky = round(($num - $hryvnia) * 100);
+
+    $units = ['', 'один', 'два', 'три', 'чотири', 'п\'ять', 'шість', 'сім', 'вісім', 'дев\'ять'];
+    $unitsF = ['', 'одна', 'дві', 'три', 'чотири', 'п\'ять', 'шість', 'сім', 'вісім', 'дев\'ять'];
+    $teens = ['десять', 'одинадцять', 'дванадцять', 'тринадцять', 'чотирнадцять', 'п\'ятнадцять', 'шістнадцять', 'сімнадцять', 'вісімнадцять', 'дев\'ятнадцять'];
+    $tens = ['', '', 'двадцять', 'тридцять', 'сорок', 'п\'ятдесят', 'шістдесят', 'сімдесят', 'вісімдесят', 'дев\'яносто'];
+    $hundreds = ['', 'сто', 'двісті', 'триста', 'чотириста', 'п\'ятсот', 'шістсот', 'сімсот', 'вісімсот', 'дев\'ятсот'];
+
+    $hryvniaForms = ['гривня', 'гривні', 'гривень'];
+    $kopiykyForms = ['копійка', 'копійки', 'копійок'];
+
+    $pluralForm = function($n, $forms) {
+        $n = abs($n) % 100;
+        $n1 = $n % 10;
+        if ($n > 10 && $n < 20) return $forms[2];
+        if ($n1 > 1 && $n1 < 5) return $forms[1];
+        if ($n1 == 1) return $forms[0];
+        return $forms[2];
+    };
+
+    $numToWords = function($n, $units) use ($hundreds, $tens, $teens) {
+        if ($n == 0) return 'нуль';
+        $result = '';
+        if ($n >= 100) {
+            $result .= $hundreds[floor($n / 100)] . ' ';
+            $n %= 100;
+        }
+        if ($n >= 20) {
+            $result .= $tens[floor($n / 10)] . ' ';
+            $n %= 10;
+        } elseif ($n >= 10) {
+            $result .= $teens[$n - 10] . ' ';
+            $n = 0;
+        }
+        if ($n > 0) {
+            $result .= $units[$n] . ' ';
+        }
+        return trim($result);
+    };
+
+    $words = $numToWords($hryvnia, $unitsF);
+    $words .= ' ' . $pluralForm($hryvnia, $hryvniaForms);
+    if ($kopiyky > 0) {
+        $words .= ' ' . $kopiyky . ' ' . $pluralForm($kopiyky, $kopiykyForms);
+    }
+    return $words;
 }
 }

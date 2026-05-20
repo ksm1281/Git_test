@@ -3,6 +3,44 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../_helpers.php';
 requireLogin();
 
+function syncOrderCustomer($pdo, $orderId, $name, $email, $phone) {
+    $stmt = $pdo->prepare("SELECT * FROM erp_orders WHERE order_id=?");
+    $stmt->execute([$orderId]);
+    $order = $stmt->fetch();
+    if (!$order) return;
+    if ($order['customer_id']) return;
+
+    $name = $order['customer_name'] ?: $name;
+    $email = $order['email'] ?: $email;
+    $phone = $order['telephone'] ?: $phone;
+
+    $customerId = null;
+    if ($email) {
+        $stmt = $pdo->prepare("SELECT customer_id FROM erp_customers WHERE email=? LIMIT 1");
+        $stmt->execute([$email]);
+        $row = $stmt->fetch();
+        if ($row) $customerId = (int)$row['customer_id'];
+    }
+    if (!$customerId && $phone) {
+        $stmt = $pdo->prepare("SELECT customer_id FROM erp_customers WHERE telephone=? LIMIT 1");
+        $stmt->execute([$phone]);
+        $row = $stmt->fetch();
+        if ($row) $customerId = (int)$row['customer_id'];
+    }
+    if (!$customerId && ($email || $phone || $name)) {
+        $stmt = $pdo->query("SELECT COALESCE(MAX(customer_id), 0) + 1 FROM erp_customers");
+        $customerId = (int)$stmt->fetchColumn();
+        $parts = explode(' ', trim($name), 2);
+        $stmt = $pdo->prepare("INSERT INTO erp_customers (customer_id, firstname, lastname, email, telephone) VALUES (?, ?, ?, ?, ?)");
+        $stmt->execute([$customerId, $parts[0] ?? '', $parts[1] ?? '', $email, $phone]);
+    }
+    if ($customerId) {
+        $pdo->prepare("UPDATE erp_orders SET customer_id=? WHERE order_id=?")->execute([$customerId, $orderId]);
+        $pdo->prepare("UPDATE erp_customers SET total_orders=(SELECT COUNT(*) FROM erp_orders WHERE customer_id=?), total_spent=(SELECT COALESCE(SUM(total),0) FROM erp_orders WHERE customer_id=?) WHERE customer_id=?")
+            ->execute([$customerId, $customerId, $customerId]);
+    }
+}
+
 $action = $_GET['action'] ?? 'list';
 $orderId = (int)($_GET['id'] ?? 0);
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -86,6 +124,8 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $pdo->prepare("UPDATE erp_orders SET total=? WHERE order_id=?")->execute([$total, $orderId]);
 
+        syncOrderCustomer($pdo, $orderId, $customerName, $email, $telephone);
+
         if ($payAmount > 0) {
             $stmt = $pdo->prepare("INSERT INTO erp_payments (order_id, amount, method, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$orderId, $payAmount, $payMethod, $payDate, 'Оплата замовлення #' . $orderId, $user['user_id']]);
@@ -165,6 +205,299 @@ if ($action === 'delete' && $orderId && isAdmin()) {
         flashMessage('error', 'Помилка: ' . $e->getMessage());
     }
     redirect(BASE_URL . '/modules/orders.php');
+}
+
+if ($action === 'invoice' && $orderId) {
+    $stmt = $pdo->prepare("SELECT * FROM erp_orders WHERE order_id = ?");
+    $stmt->execute([$orderId]);
+    $order = $stmt->fetch();
+    if (!$order) { flashMessage('error', 'Замовлення не знайдено'); redirect(BASE_URL . '/modules/orders.php'); }
+
+    $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id = ?");
+    $stmt->execute([$orderId]);
+    $items = $stmt->fetchAll();
+
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM erp_payments WHERE order_id=?");
+    $stmt->execute([$orderId]);
+    $totalPaid = (float)$stmt->fetchColumn();
+
+    $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок', 'transfer' => 'Переказ', 'nova_poshta' => 'Нова Пошта (зворотня доставка)'];
+    $deliveryLabels = ['pickup' => 'Самовивіз', 'courier' => 'Кур\'єр', 'nova_poshta' => 'Нова Пошта', 'delivery' => 'Делівері', 'ukrposhta' => 'Укрпошта'];
+    $nameParts = explode(' ', trim($order['customer_name']), 2);
+    $balance = (float)$order['total'] - $totalPaid;
+    $appName = 'ERP/CRM';
+    $stmt = $pdo->prepare("SELECT * FROM erp_customers WHERE customer_id = ?");
+    $stmt->execute([$order['customer_id']]);
+    $customerReqs = $stmt->fetch();
+
+    $stmt = $pdo->prepare("SELECT `key`, `value` FROM erp_settings");
+    $stmt->execute();
+    $allSettings = [];
+    foreach ($stmt as $row) {
+        $allSettings[$row['key']] = $row['value'];
+    }
+
+    $supplierName = $allSettings['supplier_name'] ?? $appName;
+    $supplierEdrpou = $allSettings['supplier_edrpou'] ?? '';
+    $supplierPhone = $allSettings['supplier_phone'] ?? '';
+    $supplierIban = $allSettings['supplier_iban'] ?? '';
+    $supplierBank = $allSettings['supplier_bank'] ?? '';
+    $supplierMfo = $allSettings['supplier_mfo'] ?? '';
+    $supplierCert = $allSettings['supplier_certificate'] ?? '';
+    $supplierCertDate = $allSettings['supplier_cert_date'] ?? '';
+    $supplierAddress = $allSettings['supplier_address'] ?? '';
+
+    $orderDate = $order['order_date'] ? date('d.m.Y', strtotime($order['order_date'])) : date('d.m.Y');
+    $orderDay = date('d', strtotime($order['order_date'] ?: 'now'));
+    $orderMonth = date('m', strtotime($order['order_date'] ?: 'now'));
+    $totalWords = num2str($order['total']);
+
+    ?><!DOCTYPE html>
+    <html lang="uk">
+    <head>
+        <meta charset="UTF-8">
+        <title>Видаткова-накладна #<?php echo $orderId; ?></title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+            body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 11px; padding: 15px 25px; color: #000; }
+            .print-btn { margin-bottom: 15px; }
+            @media print { .print-btn { display: none; } body { padding: 0; } }
+            .header-box { border: 1px solid #000; padding: 8px; margin-bottom: 10px; font-size: 10px; }
+            .header-box td { padding: 1px 5px; vertical-align: top; }
+            .header-label { font-weight: bold; }
+            .doc-title { font-size: 16px; font-weight: bold; text-align: center; margin: 15px 0 5px; }
+            .doc-sub { text-align: center; font-size: 11px; margin-bottom: 15px; }
+            table.items { width: 100%; border-collapse: collapse; margin: 10px 0; }
+            table.items th, table.items td { border: 1px solid #000; padding: 4px 6px; text-align: center; }
+            table.items th { font-weight: bold; }
+            table.items td.left { text-align: left; }
+            table.items td.right { text-align: right; }
+            .total-table { width: 100%; border-collapse: collapse; margin: 5px 0; }
+            .total-table td { padding: 3px 8px; border: 1px solid #000; }
+            .total-table td.label { text-align: right; font-weight: bold; width: 80%; }
+            .total-table td.value { text-align: right; width: 20%; }
+            .sign-line { margin-top: 30px; font-size: 10px; }
+            .sign-line td { padding: 2px 10px; vertical-align: bottom; }
+        </style>
+    </head>
+    <body>
+        <button class="btn btn-primary print-btn" onclick="window.print()"><i class="bi bi-printer"></i> Друк</button>
+        <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=view&id=<?php echo $orderId; ?>" class="btn btn-outline-secondary print-btn">Назад</a>
+
+        <table class="header-box" style="width:100%;">
+            <tr>
+                <td style="width:50%;">
+                    <div class="header-label">Постачальник:</div>
+                    <?php echo escape($supplierName); ?><br>
+                    ЄДРПОУ <?php echo escape($supplierEdrpou); ?>, тел. <?php echo escape($supplierPhone); ?><br>
+                    IBAN <?php echo escape($supplierIban); ?> в <?php echo escape($supplierBank); ?><br>
+                    МФО <?php echo escape($supplierMfo); ?><br>
+                    Свідоцтво № <?php echo escape($supplierCert); ?> від <?php echo escape($supplierCertDate); ?><br>
+                    Адреса: <?php echo escape($supplierAddress); ?>
+                </td>
+                <td style="width:50%;vertical-align:top;">
+                    <div class="header-label">Одержувач:</div>
+                    <?php echo escape($supplierName); ?><br>
+                    IBAN <?php echo escape($supplierIban); ?><br>
+                    МФО <?php echo escape($supplierMfo); ?>
+                </td>
+            </tr>
+        </table>
+
+        <table class="header-box" style="width:100%;">
+            <tr>
+                <td style="width:50%;">
+                    <div class="header-label">Платник:</div>
+                    <?php echo escape($order['customer_name']); ?><br>
+                    Тел. <?php echo escape($order['telephone'] ?: '-'); ?>
+                    <?php if ($order['email']): ?>
+                    <br><?php echo escape($order['email']); ?>
+                    <?php endif; ?>
+                    <?php if ($customerReqs && $customerReqs['company_name']): ?>
+                    <br><?php echo escape($customerReqs['company_name']); ?>
+                    <?php if ($customerReqs['edrpou']): ?>, ЄДРПОУ <?php echo escape($customerReqs['edrpou']); ?><?php endif; ?>
+                    <?php endif; ?>
+                    <?php if ($customerReqs && $customerReqs['legal_address']): ?>
+                    <br><?php echo escape($customerReqs['legal_address']); ?>
+                    <?php endif; ?>
+                </td>
+                <td style="width:50%;">
+                    <?php if ($customerReqs && $customerReqs['iban']): ?>
+                    <div class="header-label">Рахунок платника:</div>
+                    IBAN <?php echo escape($customerReqs['iban']); ?>
+                    <?php if ($customerReqs['mfo']): ?><br>МФО <?php echo escape($customerReqs['mfo']); ?><?php endif; ?>
+                    <?php endif; ?>
+                </td>
+            </tr>
+        </table>
+
+        <div class="doc-title">ВИДАТКОВА-НАКЛАДНА №-<?php echo $orderId; ?>\<?php echo $orderDay; ?>-<?php echo $orderMonth; ?></div>
+        <div class="doc-sub">Від <?php echo $orderDate; ?> р.</div>
+
+        <table class="items">
+            <thead>
+                <tr>
+                    <th style="width:4%;">№</th>
+                    <th style="width:38%;">Назва</th>
+                    <th style="width:8%;">Од.</th>
+                    <th style="width:10%;">К-сть</th>
+                    <th style="width:15%;">Ціна без ПДВ</th>
+                    <th style="width:15%;">Сума без ПДВ</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php $i = 1; foreach ($items as $item): ?>
+                <tr>
+                    <td><?php echo $i++; ?></td>
+                    <td class="left"><?php echo escape($item['product_name'] ?: $item['name']); ?></td>
+                    <td>шт</td>
+                    <td><?php echo (float)$item['quantity']; ?></td>
+                    <td class="right"><?php echo formatMoney($item['price']); ?></td>
+                    <td class="right"><?php echo formatMoney($item['total']); ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+
+        <table class="total-table">
+            <tr><td class="label">Разом:</td><td class="value"><?php echo formatMoney($order['total']); ?></td></tr>
+            <tr><td class="label">ПДВ:</td><td class="value">0.00 грн</td></tr>
+            <tr><td class="label">Всього:</td><td class="value"><?php echo formatMoney($order['total']); ?></td></tr>
+        </table>
+
+        <div style="margin:10px 0;font-weight:bold;">
+            Всього на суму: <?php echo formatMoney($order['total']); ?><br>
+            <?php echo escape($totalWords); ?>.<br>
+            ПДВ: 0.00 грн.
+        </div>
+
+        <table class="sign-line" style="width:100%;">
+            <tr>
+                <td style="width:40%;">Відвантажив(ла): _______________</td>
+                <td style="width:40%;">Отримав(ла): _______________</td>
+                <td style="width:20%;"></td>
+            </tr>
+            <tr>
+                <td colspan="2" style="padding-top:10px;">За дов.______ № _____ від _________</td>
+                <td></td>
+            </tr>
+        </table>
+
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
+if ($action === 'receipt' && $orderId) {
+    $stmt = $pdo->prepare("SELECT * FROM erp_orders WHERE order_id = ?");
+    $stmt->execute([$orderId]);
+    $order = $stmt->fetch();
+    if (!$order) { flashMessage('error', 'Замовлення не знайдено'); redirect(BASE_URL . '/modules/orders.php'); }
+
+    $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id = ?");
+    $stmt->execute([$orderId]);
+    $items = $stmt->fetchAll();
+
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM erp_payments WHERE order_id=?");
+    $stmt->execute([$orderId]);
+    $totalPaid = (float)$stmt->fetchColumn();
+
+    $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок', 'transfer' => 'Переказ', 'nova_poshta' => 'Нова Пошта (зворотня доставка)'];
+    $deliveryLabels = ['pickup' => 'Самовивіз', 'courier' => 'Кур\'єр', 'nova_poshta' => 'Нова Пошта', 'delivery' => 'Делівері', 'ukrposhta' => 'Укрпошта'];
+    $nameParts = explode(' ', trim($order['customer_name']), 2);
+    $appName = 'ERP/CRM';
+    $stmt = $pdo->prepare("SELECT `value` FROM erp_settings WHERE `key`='app_name'");
+    $stmt->execute();
+    $row = $stmt->fetch();
+    if ($row) $appName = $row['value'];
+    $balance = (float)$order['total'] - $totalPaid;
+
+    $paymentStatus = $balance <= 0
+        ? ($totalPaid > 0 ? 'Оплачено' : 'Не оплачено')
+        : 'Частково оплачено';
+
+    $totalWords = num2str($order['total']);
+
+    ?><!DOCTYPE html>
+    <html lang="uk">
+    <head>
+        <meta charset="UTF-8">
+        <title>Товарний чек #<?php echo $orderId; ?></title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+            body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 12px; padding: 30px; color: #000; }
+            .tc-title { font-size: 18px; font-weight: bold; text-align: center; margin-bottom: 5px; }
+            .print-btn { margin-bottom: 20px; }
+            @media print { .print-btn { display: none; } body { padding: 0; } }
+            table.items { width: 100%; border-collapse: collapse; margin: 15px 0; }
+            table.items th, table.items td { border: 1px solid #000; padding: 5px 8px; text-align: center; }
+            table.items th { font-weight: bold; }
+            table.items td.left { text-align: left; }
+            table.items td.right { text-align: right; }
+            .total-line { font-weight: bold; font-size: 13px; margin: 10px 0; }
+            .sign-line { margin-top: 30px; }
+        </style>
+    </head>
+    <body>
+        <button class="btn btn-primary print-btn" onclick="window.print()"><i class="bi bi-printer"></i> Друк</button>
+        <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=view&id=<?php echo $orderId; ?>" class="btn btn-outline-secondary print-btn">Назад</a>
+
+        <div class="tc-title">ТОВАРНИЙ ЧЕК № <?php echo $orderId; ?></div>
+        <p>Від «<?php echo $order['order_date'] ? date('d', strtotime($order['order_date'])) : date('d'); ?>» <?php echo monthName($order['order_date'] ? date('m', strtotime($order['order_date'])) : date('m')); ?> <?php echo $order['order_date'] ? date('Y', strtotime($order['order_date'])) : date('Y'); ?> р.</p>
+
+        <table class="items">
+            <thead>
+                <tr>
+                    <th style="width:5%;">№</th>
+                    <th style="width:40%;">Найменування</th>
+                    <th style="width:10%;">Од. вим.</th>
+                    <th style="width:10%;">К-ть</th>
+                    <th style="width:15%;">Ціна</th>
+                    <th style="width:15%;">Сума</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php $i = 1; foreach ($items as $item): ?>
+                <tr>
+                    <td><?php echo $i++; ?></td>
+                    <td class="left"><?php echo escape($item['product_name'] ?: $item['name']); ?></td>
+                    <td>шт</td>
+                    <td><?php echo (float)$item['quantity']; ?></td>
+                    <td class="right"><?php echo formatMoney($item['price']); ?></td>
+                    <td class="right"><?php echo formatMoney($item['total']); ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+
+        <div class="total-line">
+            Всього на суму: <?php echo formatMoney($order['total']); ?><br>
+            (<?php echo escape($totalWords); ?>)<br>
+            в т.ч. ПДВ _____________
+        </div>
+
+        <div class="sign-line">
+            <table style="width:100%;">
+                <tr>
+                    <td style="width:50%;">Товар відпустив</td>
+                    <td style="width:30%;text-align:center;border-bottom:1px solid #000;">_________________</td>
+                    <td style="width:20%;text-align:center;border-bottom:1px solid #000;">_______________</td>
+                </tr>
+                <tr>
+                    <td></td>
+                    <td style="text-align:center;font-size:10px;">підпис</td>
+                    <td></td>
+                </tr>
+            </table>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    </body>
+    </html>
+    <?php
+    exit;
 }
 
 if ($action === 'create' || $action === 'edit') {
@@ -268,6 +601,7 @@ if ($action === 'create' || $action === 'edit') {
                             <option value="fop" <?php echo $isEdit && $order['payment_method'] === 'fop' ? 'selected' : ''; ?>>ФОП</option>
                             <option value="invoice" <?php echo $isEdit && $order['payment_method'] === 'invoice' ? 'selected' : ''; ?>>Рахунок</option>
                             <option value="transfer" <?php echo $isEdit && $order['payment_method'] === 'transfer' ? 'selected' : ''; ?>>Переказ</option>
+                            <option value="nova_poshta" <?php echo $isEdit && $order['payment_method'] === 'nova_poshta' ? 'selected' : ''; ?>>Нова Пошта (зворотня доставка)</option>
                         </select>
                     </div>
                     <div class="col-md-3">
@@ -429,6 +763,8 @@ if ($action === 'view' && $orderId) {
     $order = $stmt->fetch();
     if (!$order) { flashMessage('error', 'Замовлення не знайдено'); redirect(BASE_URL . '/modules/orders.php'); }
 
+    syncOrderCustomer($pdo, $orderId, $order['customer_name'], $order['email'], $order['telephone']);
+
     $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id = ?");
     $stmt->execute([$orderId]);
     $items = $stmt->fetchAll();
@@ -439,7 +775,7 @@ if ($action === 'view' && $orderId) {
     $totalPaid = 0;
     foreach ($payments as $pmt) { $totalPaid += (float)$pmt['amount']; }
     $balance = (float)$order['total'] - $totalPaid;
-    $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок', 'transfer' => 'Переказ'];
+    $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок', 'transfer' => 'Переказ', 'nova_poshta' => 'Нова Пошта (зворотня доставка)'];
 
     $statusOptions = ['pending' => 'Очікує', 'approved' => 'Підтверджено', 'processed' => 'В обробці', 'shipped' => 'Відправлено', 'delivered' => 'Доставлено', 'cancelled' => 'Скасовано'];
     $statusClasses = ['pending' => 'bg-warning text-dark', 'approved' => 'bg-info', 'processed' => 'bg-primary', 'shipped' => 'bg-secondary', 'delivered' => 'bg-success', 'cancelled' => 'bg-danger'];
@@ -454,6 +790,8 @@ if ($action === 'view' && $orderId) {
             <?php if ($canEdit): ?>
             <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=edit&id=<?php echo $orderId; ?>" class="btn btn-warning btn-sm"><i class="bi bi-pencil"></i> Редагувати</a>
             <?php endif; ?>
+            <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=invoice&id=<?php echo $orderId; ?>" class="btn btn-outline-primary btn-sm" target="_blank"><i class="bi bi-file-text"></i> Накладна</a>
+            <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=receipt&id=<?php echo $orderId; ?>" class="btn btn-outline-success btn-sm" target="_blank"><i class="bi bi-printer"></i> Чек</a>
             <?php if (isAdmin()): ?>
             <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=delete&id=<?php echo $orderId; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Видалити замовлення?')"><i class="bi bi-trash"></i></a>
             <?php endif; ?>
@@ -613,6 +951,7 @@ if ($action === 'view' && $orderId) {
                                 <option value="fop">ФОП</option>
                                 <option value="invoice">Рахунок</option>
                                 <option value="transfer">Переказ</option>
+                                <option value="nova_poshta">Нова Пошта (зворотня доставка)</option>
                             </select>
                         </div>
                         <div class="col-6">

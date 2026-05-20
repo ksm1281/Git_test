@@ -9,6 +9,154 @@ $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 25;
 $user = getUserData();
 
+if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $supplierId = (int)($_POST['supplier_id'] ?? 0);
+    $invoiceNumber = trim($_POST['invoice_number'] ?? '');
+    $date = $_POST['date'] ?? date('Y-m-d');
+    $currency = $_POST['currency'] ?? 'USD';
+    $rate = $currency === 'UAH' ? 1 : (float)($_POST['exchange_rate'] ?? getCurrentRate($pdo));
+    $notes = trim($_POST['notes'] ?? '');
+    $colName = (int)($_POST['col_name'] ?? 1);
+    $colSku = (int)($_POST['col_sku'] ?? 0);
+    $colQty = (int)($_POST['col_qty'] ?? 2);
+    $colPrice = (int)($_POST['col_price'] ?? 3);
+    $headerRows = (int)($_POST['header_rows'] ?? 1);
+
+    if (!$supplierId || empty($invoiceNumber) || empty($_FILES['import_file'])) {
+        flashMessage('error', 'Заповніть обов\'язкові поля та завантажте файл');
+        redirect(BASE_URL . '/modules/incoming.php?action=create');
+    }
+
+    $file = $_FILES['import_file'];
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, ['csv', 'xlsx'])) {
+        flashMessage('error', 'Підтримуються тільки CSV та XLSX файли');
+        redirect(BASE_URL . '/modules/incoming.php?action=create');
+    }
+
+    $rows = [];
+    if ($ext === 'csv') {
+        $handle = fopen($file['tmp_name'], 'r');
+        if ($handle) {
+            $rowNum = 0;
+            while (($data = fgetcsv($handle)) !== false) {
+                $rowNum++;
+                if ($rowNum <= $headerRows) continue;
+                $name = trim($data[$colName - 1] ?? '');
+                $qty = (float)str_replace(',', '.', trim($data[$colQty - 1] ?? '0'));
+                $price = (float)str_replace(',', '.', trim($data[$colPrice - 1] ?? '0'));
+                $sku = $colSku > 0 ? trim($data[$colSku - 1] ?? '') : '';
+                if ($name && $qty > 0) $rows[] = ['name' => $name, 'sku' => $sku, 'qty' => $qty, 'price' => $price];
+            }
+            fclose($handle);
+        }
+    } elseif ($ext === 'xlsx' && class_exists('ZipArchive')) {
+        $zip = new ZipArchive;
+        if ($zip->open($file['tmp_name']) === true) {
+            $sheet = $zip->getFromName('xl/worksheets/sheet1.xml');
+            $shared = $zip->getFromName('xl/sharedStrings.xml');
+            $zip->close();
+
+            if ($sheet) {
+                $strings = [];
+                if ($shared) {
+                    $sxml = simplexml_load_string($shared);
+                    foreach ($sxml->si as $si) $strings[] = (string)$si->t;
+                }
+
+                $xml = simplexml_load_string($sheet);
+                $ns = $xml->getNamespaces(true);
+                $data = $xml->sheetData->row;
+                $rowNum = 0;
+                foreach ($data as $row) {
+                    $rowNum++;
+                    if ($rowNum <= $headerRows) continue;
+                    $vals = [];
+                    foreach ($row->c as $c) {
+                        $ref = (string)$c['r'];
+                        $colIdx = preg_replace('/[0-9]/', '', $ref);
+                        $colLetter = ord(strtoupper($colIdx)) - ord('A') + 1;
+                        $type = (string)$c['t'];
+                        $v = (string)$c->v;
+                        if ($type === 's' && isset($strings[(int)$v])) $v = $strings[(int)$v];
+                        $v = str_replace(',', '.', trim($v));
+                        $vals[$colLetter] = $v;
+                    }
+                    $name = $vals[$colName] ?? '';
+                    $qty = (float)($vals[$colQty] ?? 0);
+                    $price = (float)($vals[$colPrice] ?? 0);
+                    $sku = $colSku > 0 ? ($vals[$colSku] ?? '') : '';
+                    if ($name && $qty > 0) $rows[] = ['name' => $name, 'sku' => $sku, 'qty' => $qty, 'price' => $price];
+                }
+            }
+        }
+    }
+
+    if (empty($rows)) {
+        flashMessage('error', 'Не вдалося прочитати дані з файлу. Перевірте формат і налаштування колонок.');
+        redirect(BASE_URL . '/modules/incoming.php?action=create');
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("INSERT INTO erp_incoming_invoices (invoice_number, supplier_id, date, currency, exchange_rate, notes, user_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')");
+        $stmt->execute([$invoiceNumber, $supplierId, $date, $currency, $rate, $notes, $user['user_id']]);
+        $invoiceId = $pdo->lastInsertId();
+
+        $totalForeign = 0;
+        $totalLocal = 0;
+        $matched = 0;
+        $notFound = [];
+
+        foreach ($rows as $r) {
+            $pid = 0;
+            if ($r['sku']) {
+                $stmt = $pdo->prepare("SELECT product_id FROM erp_products WHERE sku=? LIMIT 1");
+                $stmt->execute([$r['sku']]);
+                $pid = (int)$stmt->fetchColumn();
+            }
+            if (!$pid) {
+                $stmt = $pdo->prepare("SELECT product_id FROM erp_products WHERE name=? LIMIT 1");
+                $stmt->execute([$r['name']]);
+                $pid = (int)$stmt->fetchColumn();
+            }
+            if (!$pid) {
+                $stmt = $pdo->prepare("SELECT product_id FROM erp_products WHERE name LIKE ? LIMIT 1");
+                $stmt->execute(['%' . $r['name'] . '%']);
+                $pid = (int)$stmt->fetchColumn();
+            }
+            if (!$pid) {
+                $notFound[] = $r['name'];
+                continue;
+            }
+
+            $tf = $r['qty'] * $r['price'];
+            $tl = $tf * $rate;
+            $totalForeign += $tf;
+            $totalLocal += $tl;
+
+            $stmt = $pdo->prepare("INSERT INTO erp_invoice_items (invoice_id, product_id, quantity, price_foreign, price_local, total_foreign, total_local) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$invoiceId, $pid, $r['qty'], $r['price'], $r['price'] * $rate, $tf, $tl]);
+            $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, user_id, notes) VALUES (?, 'in', ?, ?, 'invoice', ?, ?, ?)");
+            $stmt->execute([$pid, $r['qty'], $r['price'], $invoiceId, $user['user_id'], 'Імпорт: ' . $invoiceNumber]);
+            $matched++;
+        }
+
+        $stmt = $pdo->prepare("UPDATE erp_incoming_invoices SET total_foreign = ?, total_local = ? WHERE invoice_id = ?");
+        $stmt->execute([$totalForeign, $totalLocal, $invoiceId]);
+        $pdo->commit();
+
+        $msg = 'Накладну #' . $invoiceNumber . ' створено. Опрацьовано ' . $matched . ' з ' . count($rows) . ' товарів.';
+        if ($notFound) $msg .= ' Не знайдено: ' . implode(', ', array_slice($notFound, 0, 10)) . (count($notFound) > 10 ? '...' : '');
+        flashMessage('success', $msg);
+        redirect(BASE_URL . '/modules/incoming.php?action=view&id=' . $invoiceId);
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        flashMessage('error', 'Помилка: ' . $e->getMessage());
+        redirect(BASE_URL . '/modules/incoming.php?action=create');
+    }
+}
+
 if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $supplierId = (int)($_POST['supplier_id'] ?? 0);
     $invoiceNumber = trim($_POST['invoice_number'] ?? '');
@@ -362,6 +510,87 @@ if ($action === 'create' || $action === 'edit') {
         <h4 class="mb-0"><i class="bi bi-receipt"></i> <?php echo $title; ?></h4>
         <a href="<?php echo BASE_URL; ?>/modules/incoming.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x-lg"></i> Скасувати</a>
     </div>
+
+    <?php if (!$isEdit): ?>
+    <div class="card mb-3">
+        <div class="card-header" data-bs-toggle="collapse" data-bs-target="#importSection" style="cursor:pointer;">
+            <i class="bi bi-file-earmark-spreadsheet"></i> Імпорт з Excel/CSV <i class="bi bi-chevron-down float-end"></i>
+        </div>
+        <div class="collapse" id="importSection">
+            <div class="card-body">
+                <form method="post" action="?action=import" enctype="multipart/form-data">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-3">
+                            <label class="form-label required">Номер накладної</label>
+                            <input type="text" name="invoice_number" class="form-control" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label required">Постачальник</label>
+                            <select name="supplier_id" class="form-select" required>
+                                <option value="">-- Виберіть --</option>
+                                <?php foreach ($suppliers as $s): ?>
+                                <option value="<?php echo $s['supplier_id']; ?>"><?php echo escape($s['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Дата</label>
+                            <input type="date" name="date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Валюта</label>
+                            <select name="currency" class="form-select">
+                                <option value="USD">USD</option>
+                                <option value="EUR">EUR</option>
+                                <option value="UAH">UAH</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Курс</label>
+                            <input type="number" name="exchange_rate" class="form-control" step="0.0001" value="<?php echo $rate; ?>">
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label required">Файл (CSV або XLSX)</label>
+                            <input type="file" name="import_file" class="form-control" accept=".csv,.xlsx" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Рядків заголовка</label>
+                            <input type="number" name="header_rows" class="form-control" value="1" min="0">
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3 p-3 bg-light rounded">
+                        <div class="col-12"><small class="fw-bold">Налаштування колонок</small></div>
+                        <div class="col-md-3">
+                            <label class="form-label">Назва товару</label>
+                            <input type="number" name="col_name" class="form-control" value="1" min="1">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">SKU/Артикул (0 — пропустити)</label>
+                            <input type="number" name="col_sku" class="form-control" value="0" min="0">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Кількість</label>
+                            <input type="number" name="col_qty" class="form-control" value="2" min="1">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Ціна</label>
+                            <input type="number" name="col_price" class="form-control" value="3" min="1">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Примітки</label>
+                        <textarea name="notes" class="form-control" rows="1"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-success"><i class="bi bi-upload"></i> Імпортувати та створити</button>
+                    <small class="text-muted ms-3">Товари шукаються за артикулом, потім за назвою. Нерозпізнані пропускаються.</small>
+                </form>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <div class="card">
         <div class="card-header">Дані накладної</div>
         <div class="card-body">

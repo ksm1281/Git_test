@@ -313,7 +313,8 @@ function initErpTables($pdo) {
     try { $pdo->exec("ALTER TABLE erp_orders MODIFY order_id INT AUTO_INCREMENT"); } catch (PDOException $e) { /* ignore */ }
     try { $pdo->exec("ALTER TABLE erp_order_products MODIFY order_product_id INT AUTO_INCREMENT"); } catch (PDOException $e) { /* ignore */ }
     try { $pdo->exec("ALTER TABLE erp_payments ADD COLUMN order_id INT DEFAULT NULL AFTER invoice_id"); } catch (PDOException $e) { /* ignore */ }
-    try { $pdo->exec("ALTER TABLE erp_payments MODIFY COLUMN method ENUM('cash','card','fop','invoice','transfer') NOT NULL DEFAULT 'cash'"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_payments MODIFY COLUMN method ENUM('cash','card','fop','invoice','transfer','nova_poshta') NOT NULL DEFAULT 'cash'"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_transactions MODIFY COLUMN method ENUM('cash','card','fop','invoice','transfer','nova_poshta') DEFAULT 'cash'"); } catch (PDOException $e) { /* ignore */ }
     try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS payment_method VARCHAR(32) DEFAULT NULL AFTER total"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN payment_method VARCHAR(32) DEFAULT NULL AFTER erp_notes"); } catch (PDOException $e2) { /* ignore */ }
     }
@@ -323,6 +324,12 @@ function initErpTables($pdo) {
     try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_address TEXT DEFAULT NULL AFTER delivery_method"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_address TEXT DEFAULT NULL AFTER delivery_method"); } catch (PDOException $e2) { /* ignore */ }
     }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS company_name VARCHAR(255) DEFAULT NULL AFTER group_name"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS edrpou VARCHAR(32) DEFAULT NULL AFTER company_name"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS legal_address TEXT DEFAULT NULL AFTER edrpou"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS iban VARCHAR(64) DEFAULT NULL AFTER legal_address"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS mfo VARCHAR(16) DEFAULT NULL AFTER iban"); } catch (PDOException $e) { /* ignore */ }
+
     try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS order_date DATE DEFAULT NULL AFTER delivery_address"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN order_date DATE DEFAULT NULL AFTER delivery_address"); } catch (PDOException $e2) { /* ignore */ }
     }
@@ -362,6 +369,49 @@ function initErpTables($pdo) {
         $pdo->exec("INSERT INTO erp_exchange_rates (currency_from, currency_to, rate, source) VALUES ('USD', 'UAH', 41.50, 'manual')");
     }
 
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `erp_delivery_methods` (
+            `method_id` INT AUTO_INCREMENT PRIMARY KEY,
+            `code` VARCHAR(32) NOT NULL UNIQUE,
+            `name` VARCHAR(128) NOT NULL,
+            `sort_order` INT DEFAULT 0,
+            `status` TINYINT DEFAULT 1
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `erp_payment_methods` (
+            `method_id` INT AUTO_INCREMENT PRIMARY KEY,
+            `code` VARCHAR(32) NOT NULL UNIQUE,
+            `name` VARCHAR(128) NOT NULL,
+            `sort_order` INT DEFAULT 0,
+            `status` TINYINT DEFAULT 1
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $stmt = $pdo->query("SELECT COUNT(*) FROM erp_delivery_methods");
+    if ($stmt->fetchColumn() == 0) {
+        $pdo->exec("INSERT INTO erp_delivery_methods (code, name, sort_order) VALUES
+            ('pickup', 'Самовивіз', 1),
+            ('courier', 'Кур\'єр', 2),
+            ('nova_poshta', 'Нова Пошта', 3),
+            ('delivery', 'Делівері', 4),
+            ('ukrposhta', 'Укрпошта', 5)
+        ");
+    }
+
+    $stmt = $pdo->query("SELECT COUNT(*) FROM erp_payment_methods");
+    if ($stmt->fetchColumn() == 0) {
+        $pdo->exec("INSERT INTO erp_payment_methods (code, name, sort_order) VALUES
+            ('cash', 'Готівка', 1),
+            ('card', 'Картка', 2),
+            ('fop', 'ФОП', 3),
+            ('invoice', 'Рахунок', 4),
+            ('transfer', 'Переказ', 5),
+            ('nova_poshta', 'Нова Пошта (зворотня доставка)', 6)
+        ");
+    }
+
     $stmt = $pdo->query("SELECT COUNT(*) FROM erp_settings WHERE `key` = 'default_markup_wholesale'");
     if ($stmt->fetchColumn() == 0) {
         $pdo->exec("INSERT INTO erp_settings (`key`, `value`) VALUES
@@ -369,7 +419,19 @@ function initErpTables($pdo) {
             ('default_markup_semi_wholesale', '25'),
             ('default_markup_retail', '50'),
             ('auto_sync_enabled', '0'),
-            ('sync_interval_minutes', '60')
+            ('sync_interval_minutes', '60'),
+            ('app_name', 'ERP/CRM'),
+            ('currency_symbol', '&#8372;'),
+            ('currency_code', 'UAH'),
+            ('supplier_name', 'ФОП Прізвище Ім\'я П.'),
+            ('supplier_edrpou', ''),
+            ('supplier_phone', ''),
+            ('supplier_iban', ''),
+            ('supplier_bank', 'АТ «ПУМБ»'),
+            ('supplier_mfo', ''),
+            ('supplier_certificate', ''),
+            ('supplier_cert_date', ''),
+            ('supplier_address', '')
         ");
     }
 }
@@ -556,24 +618,38 @@ function fetchPrivatBankRate($pdo) {
     return $found;
 }
 
+if (!function_exists('getActiveNav')) {
 function getActiveNav($page) {
     return basename($_SERVER['PHP_SELF']) === $page ? 'active' : '';
 }
+}
 
+if (!function_exists('getStatusBadge')) {
 function getStatusBadge($status) {
+    $status = strtolower($status);
     $classes = [
         'pending' => 'bg-warning text-dark',
         'approved' => 'bg-info',
-        'rejected' => 'bg-danger',
-        'processed' => 'bg-success',
-        'draft' => 'bg-secondary',
-        'confirmed' => 'bg-success',
+        'processed' => 'bg-primary',
+        'shipped' => 'bg-secondary',
+        'delivered' => 'bg-success',
         'cancelled' => 'bg-danger',
     ];
+    $labels = [
+        'pending' => 'Очікує',
+        'approved' => 'Підтверджено',
+        'processed' => 'В обробці',
+        'shipped' => 'Відправлено',
+        'delivered' => 'Доставлено',
+        'cancelled' => 'Скасовано',
+    ];
     $class = $classes[$status] ?? 'bg-secondary';
-    return '<span class="badge ' . $class . '">' . escape(ucfirst($status)) . '</span>';
+    $label = $labels[$status] ?? $status;
+    return '<span class="badge ' . $class . '">' . escape($label) . '</span>';
+}
 }
 
+if (!function_exists('getStockTypeLabel')) {
 function getStockTypeLabel($type) {
     $labels = [
         'in' => '<span class="badge bg-success">Прихід</span>',
@@ -584,7 +660,9 @@ function getStockTypeLabel($type) {
     ];
     return $labels[$type] ?? escape($type);
 }
+}
 
+if (!function_exists('paginate')) {
 function paginate($total, $perPage, $currentPage) {
     $totalPages = ceil($total / $perPage);
     $offset = ($currentPage - 1) * $perPage;
@@ -596,7 +674,9 @@ function paginate($total, $perPage, $currentPage) {
         'offset' => $offset,
     ];
 }
+}
 
+if (!function_exists('renderPagination')) {
 function renderPagination($baseUrl, $pagination) {
     if ($pagination['total_pages'] <= 1) return '';
     $html = '<nav><ul class="pagination justify-content-center">';
@@ -610,4 +690,65 @@ function renderPagination($baseUrl, $pagination) {
     $html .= '<a class="page-link" href="' . $baseUrl . '&page=' . ($pagination['current_page'] + 1) . '">&raquo;</a></li>';
     $html .= '</ul></nav>';
     return $html;
+}
+}
+
+if (!function_exists('monthName')) {
+function monthName($m) {
+    $months = ['', 'січня', 'лютого', 'березня', 'квітня', 'травня', 'червня', 'липня', 'серпня', 'вересня', 'жовтня', 'листопада', 'грудня'];
+    return $months[(int)$m] ?? '';
+}
+}
+
+if (!function_exists('num2str')) {
+function num2str($num) {
+    $num = round($num, 2);
+    $hryvnia = floor($num);
+    $kopiyky = round(($num - $hryvnia) * 100);
+
+    $units = ['', 'один', 'два', 'три', 'чотири', 'п\'ять', 'шість', 'сім', 'вісім', 'дев\'ять'];
+    $unitsF = ['', 'одна', 'дві', 'три', 'чотири', 'п\'ять', 'шість', 'сім', 'вісім', 'дев\'ять'];
+    $teens = ['десять', 'одинадцять', 'дванадцять', 'тринадцять', 'чотирнадцять', 'п\'ятнадцять', 'шістнадцять', 'сімнадцять', 'вісімнадцять', 'дев\'ятнадцять'];
+    $tens = ['', '', 'двадцять', 'тридцять', 'сорок', 'п\'ятдесят', 'шістдесят', 'сімдесят', 'вісімдесят', 'дев\'яносто'];
+    $hundreds = ['', 'сто', 'двісті', 'триста', 'чотириста', 'п\'ятсот', 'шістсот', 'сімсот', 'вісімсот', 'дев\'ятсот'];
+
+    $hryvniaForms = ['гривня', 'гривні', 'гривень'];
+    $kopiykyForms = ['копійка', 'копійки', 'копійок'];
+
+    $pluralForm = function($n, $forms) {
+        $n = abs($n) % 100;
+        $n1 = $n % 10;
+        if ($n > 10 && $n < 20) return $forms[2];
+        if ($n1 > 1 && $n1 < 5) return $forms[1];
+        if ($n1 == 1) return $forms[0];
+        return $forms[2];
+    };
+
+    $numToWords = function($n, $units) use ($hundreds, $tens, $teens) {
+        if ($n == 0) return 'нуль';
+        $result = '';
+        if ($n >= 100) {
+            $result .= $hundreds[floor($n / 100)] . ' ';
+            $n %= 100;
+        }
+        if ($n >= 20) {
+            $result .= $tens[floor($n / 10)] . ' ';
+            $n %= 10;
+        } elseif ($n >= 10) {
+            $result .= $teens[$n - 10] . ' ';
+            $n = 0;
+        }
+        if ($n > 0) {
+            $result .= $units[$n] . ' ';
+        }
+        return trim($result);
+    };
+
+    $words = $numToWords($hryvnia, $unitsF);
+    $words .= ' ' . $pluralForm($hryvnia, $hryvniaForms);
+    if ($kopiyky > 0) {
+        $words .= ' ' . $kopiyky . ' ' . $pluralForm($kopiyky, $kopiykyForms);
+    }
+    return $words;
+}
 }

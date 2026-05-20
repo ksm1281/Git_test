@@ -79,6 +79,11 @@ $currentPage = basename($_SERVER['PHP_SELF']);
                     </li>
                     <?php if (isAdmin()): ?>
                     <li class="nav-item">
+                        <a class="nav-link <?php echo $currentPage === 'settings.php' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/settings.php">
+                            <i class="bi bi-gear-wide"></i> Налаштування
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link <?php echo $currentPage === 'staff.php' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/staff.php">
                             <i class="bi bi-person-gear"></i> Персонал
                         </a>

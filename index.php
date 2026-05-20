@@ -26,9 +26,6 @@ $lowStock = $stmt->fetchAll();
 $stmt = $pdo->query("SELECT o.order_id, o.customer_name, o.total, o.status_name, o.date_added FROM erp_orders o ORDER BY o.date_added DESC LIMIT 10");
 $recentOrders = $stmt->fetchAll();
 
-$stmt = $pdo->query("SELECT r.*, p.name as product_name FROM erp_returns r LEFT JOIN erp_products p ON r.product_id = p.product_id WHERE r.status = 'pending' ORDER BY r.date_added DESC LIMIT 10");
-$pendingReturns = $stmt->fetchAll();
-
 $rates = getCurrentRates($pdo);
 $markups = getDefaultMarkups($pdo);
 
@@ -146,70 +143,29 @@ include __DIR__ . '/includes/header.php';
 </div>
 
 <div class="row g-3 mt-2">
-    <div class="col-lg-6">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span>Очікують повернення</span>
-                <a href="<?php echo BASE_URL; ?>/modules/returns.php" class="btn btn-sm btn-outline-primary">Усі повернення</a>
-            </div>
-            <div class="card-body p-0">
-                <?php if (count($pendingReturns) > 0): ?>
-                <div class="table-container">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Товар</th>
-                                <th>К-сть</th>
-                                <th>Причина</th>
-                                <th>Дата</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($pendingReturns as $ret): ?>
-                            <tr>
-                                <td><?php echo (int)$ret['return_id']; ?></td>
-                                <td><?php echo escape($ret['product_name'] ?: 'ID: ' . $ret['product_id']); ?></td>
-                                <td><?php echo (int)$ret['quantity']; ?></td>
-                                <td class="text-truncate" style="max-width:150px;"><?php echo escape($ret['reason']); ?></td>
-                                <td><?php echo formatDate($ret['date_added']); ?></td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <?php else: ?>
-                <div class="text-center py-4 text-muted">
-                    <i class="bi bi-check-circle" style="font-size:2rem;"></i>
-                    <p class="mt-2 mb-0">Немає очікуваних повернень</p>
-                </div>
-                <?php endif; ?>
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-6">
+    <div class="col-lg-12">
         <div class="card">
             <div class="card-header">
                 <i class="bi bi-gear"></i> Швидкі дії
             </div>
             <div class="card-body">
                 <div class="row g-2">
-                    <div class="col-6">
-                        <a href="<?php echo BASE_URL; ?>/modules/incoming.php" class="btn btn-outline-primary w-100">
-                            <i class="bi bi-receipt"></i> Нова накладна
+                    <div class="col-3">
+                        <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=create" class="btn btn-primary w-100">
+                            <i class="bi bi-plus-lg"></i> Нове замовлення
                         </a>
                     </div>
-                    <div class="col-6">
-                        <a href="<?php echo BASE_URL; ?>/modules/suppliers.php" class="btn btn-outline-success w-100">
-                            <i class="bi bi-truck"></i> Постачальник
+                    <div class="col-3">
+                        <a href="<?php echo BASE_URL; ?>/modules/stock.php" class="btn btn-outline-success w-100">
+                            <i class="bi bi-box-seam"></i> Товари
                         </a>
                     </div>
-                    <div class="col-6">
+                    <div class="col-3">
                         <a href="<?php echo BASE_URL; ?>/modules/pricing.php" class="btn btn-outline-warning w-100">
                             <i class="bi bi-currency-exchange"></i> Ціни
                         </a>
                     </div>
-                    <div class="col-6">
+                    <div class="col-3">
                         <a href="<?php echo BASE_URL; ?>/modules/analytics.php" class="btn btn-outline-info w-100">
                             <i class="bi bi-graph-up"></i> Аналітика
                         </a>

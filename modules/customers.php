@@ -3,6 +3,24 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../_helpers.php';
 requireLogin();
 
+$action = $_GET['action'] ?? '';
+
+if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManager()) {
+    $customerId = (int)($_POST['customer_id'] ?? 0);
+    $companyName = trim($_POST['company_name'] ?? '');
+    $edrpou = trim($_POST['edrpou'] ?? '');
+    $legalAddress = trim($_POST['legal_address'] ?? '');
+    $iban = trim($_POST['iban'] ?? '');
+    $mfo = trim($_POST['mfo'] ?? '');
+
+    if ($customerId) {
+        $stmt = $pdo->prepare("UPDATE erp_customers SET company_name=?, edrpou=?, legal_address=?, iban=?, mfo=? WHERE customer_id=?");
+        $stmt->execute([$companyName, $edrpou, $legalAddress, $iban, $mfo, $customerId]);
+        flashMessage('success', 'Реквізити клієнта збережено');
+    }
+    redirect(BASE_URL . '/modules/customers.php?id=' . $customerId);
+}
+
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 25;
 $search = trim($_GET['search'] ?? '');
@@ -10,9 +28,9 @@ $search = trim($_GET['search'] ?? '');
 $where = '';
 $params = [];
 if ($search) {
-    $where = "WHERE (c.firstname LIKE ? OR c.lastname LIKE ? OR c.email LIKE ? OR c.telephone LIKE ? OR CAST(c.customer_id AS CHAR) LIKE ?)";
+    $where = "WHERE (c.firstname LIKE ? OR c.lastname LIKE ? OR c.email LIKE ? OR c.telephone LIKE ? OR c.company_name LIKE ? OR CAST(c.customer_id AS CHAR) LIKE ?)";
     $s = "%$search%";
-    $params = [$s, $s, $s, $s, $s];
+    $params = [$s, $s, $s, $s, $s, $s];
 }
 
 if (isset($_GET['action']) && $_GET['action'] === 'add_note' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -121,7 +139,10 @@ if (isset($_GET['id'])) {
     <div class="card mt-3">
         <div class="card-header d-flex justify-content-between align-items-center">
             <span>Клієнт: <?php echo escape($customer['firstname'] . ' ' . $customer['lastname']); ?></span>
-            <a href="<?php echo BASE_URL; ?>/modules/customers.php" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Назад</a>
+            <div>
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#customerRequisitesModal"><i class="bi bi-pencil"></i> Реквізити</button>
+                <a href="<?php echo BASE_URL; ?>/modules/customers.php" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Назад</a>
+            </div>
         </div>
         <div class="card-body">
             <div class="row g-3 mb-3">
@@ -142,6 +163,32 @@ if (isset($_GET['id'])) {
                     <div class="fw-bold"><?php echo (int)$customer['total_orders']; ?> / <?php echo formatMoney($customer['total_spent']); ?></div>
                 </div>
             </div>
+
+            <?php if ($customer['company_name'] || $customer['edrpou']): ?>
+            <div class="row g-3 mb-3 p-3 bg-light rounded">
+                <div class="col-md-12"><strong>Реквізити</strong></div>
+                <div class="col-md-4">
+                    <small class="text-muted">Назва юр. особи</small>
+                    <div><?php echo escape($customer['company_name'] ?: '-'); ?></div>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted">ЄДРПОУ / ІПН</small>
+                    <div><?php echo escape($customer['edrpou'] ?: '-'); ?></div>
+                </div>
+                <div class="col-md-3">
+                    <small class="text-muted">IBAN</small>
+                    <div><?php echo escape($customer['iban'] ?: '-'); ?></div>
+                </div>
+                <div class="col-md-2">
+                    <small class="text-muted">МФО</small>
+                    <div><?php echo escape($customer['mfo'] ?: '-'); ?></div>
+                </div>
+                <div class="col-md-12">
+                    <small class="text-muted">Юр. адреса</small>
+                    <div><?php echo escape($customer['legal_address'] ?: '-'); ?></div>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <ul class="nav nav-tabs mb-3">
                 <li class="nav-item"><a class="nav-link active" href="#orders-tab" data-bs-toggle="tab">Замовлення</a></li>
@@ -206,5 +253,47 @@ if (isset($_GET['id'])) {
     endif;
 }
 ?>
+
+<?php if (isset($customer) && $customer): ?>
+<div class="modal fade" id="customerRequisitesModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="?action=save">
+                <input type="hidden" name="customer_id" value="<?php echo $customerId; ?>">
+                <div class="modal-header">
+                    <h5 class="modal-title">Реквізити клієнта</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Назва юр. особи / ФОП</label>
+                        <input type="text" name="company_name" class="form-control" value="<?php echo escape($customer['company_name'] ?? ''); ?>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">ЄДРПОУ / ІПН</label>
+                        <input type="text" name="edrpou" class="form-control" value="<?php echo escape($customer['edrpou'] ?? ''); ?>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Юридична адреса</label>
+                        <input type="text" name="legal_address" class="form-control" value="<?php echo escape($customer['legal_address'] ?? ''); ?>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">IBAN</label>
+                        <input type="text" name="iban" class="form-control" value="<?php echo escape($customer['iban'] ?? ''); ?>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">МФО</label>
+                        <input type="text" name="mfo" class="form-control" value="<?php echo escape($customer['mfo'] ?? ''); ?>">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                    <button type="submit" class="btn btn-primary">Зберегти</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

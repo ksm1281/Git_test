@@ -1,0 +1,62 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "bash": {
+      "*": "ask"
+    },
+    "edit": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "mcp": {
+      "docs:*": "allow",
+      "playwright:*": "ask",
+      "testsprite:*": "ask",
+      "context7:*": "allow"
+    },
+    "skill": {
+      "doc": "allow",
+      "xlsx": "allow",
+      "website-building": "allow",
+      "chart": "ask"
+    }
+  },
+  "mcp": {
+    "docs": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "npx",
+        "-y",
+        "@arabold/docs-mcp-server"
+      ]
+    },
+    "playwright": {
+      "type": "local",
+      "enabled": true,
+      "timeout": 15000,
+      "command": [
+        "npx",
+        "@playwright/mcp@latest"
+      ]
+    },
+    "testsprite": {
+      "type": "local",
+      "enabled": true,
+      "timeout": 15000,
+      "command": [
+        "npx",
+        "@testsprite/testsprite-mcp@latest"
+      ]
+    },
+    "context7": {
+      "type": "local",
+      "enabled": true,
+      "timeout": 15000,
+      "command": [
+        "npx",
+        "-y",
+        "@upstash/context7-mcp"
+      ]
+    }
+  }
+}
