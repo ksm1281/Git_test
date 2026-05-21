@@ -59,17 +59,17 @@ function paginate($total, $perPage, $currentPage) {
 }
 
 if (!function_exists('renderPagination')) {
-function renderPagination($baseUrl, $pagination) {
+function renderPagination($baseUrl, $pagination, $pageParam = 'page') {
     if ($pagination['total_pages'] <= 1) return '';
     $html = '<nav><ul class="pagination justify-content-center">';
     $html .= '<li class="page-item ' . ($pagination['current_page'] <= 1 ? 'disabled' : '') . '">';
-    $html .= '<a class="page-link" href="' . $baseUrl . '&page=' . ($pagination['current_page'] - 1) . '">&laquo;</a></li>';
+    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($pagination['current_page'] - 1) . '">&laquo;</a></li>';
     for ($i = 1; $i <= $pagination['total_pages']; $i++) {
         $html .= '<li class="page-item ' . ($i === $pagination['current_page'] ? 'active' : '') . '">';
-        $html .= '<a class="page-link" href="' . $baseUrl . '&page=' . $i . '">' . $i . '</a></li>';
+        $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . $i . '">' . $i . '</a></li>';
     }
     $html .= '<li class="page-item ' . ($pagination['current_page'] >= $pagination['total_pages'] ? 'disabled' : '') . '">';
-    $html .= '<a class="page-link" href="' . $baseUrl . '&page=' . ($pagination['current_page'] + 1) . '">&raquo;</a></li>';
+    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($pagination['current_page'] + 1) . '">&raquo;</a></li>';
     $html .= '</ul></nav>';
     return $html;
 }

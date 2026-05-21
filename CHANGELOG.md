@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0] — 2026-05-21
+
+### Додано
+- **config.php**: колонка `price_purchase` (вхідна закупівельна ціна) у таблицю `erp_products`
+- **modules/stock.php**: колонка "Закупівля" у списку товарів; окрема сторінка корекцій залишків (`?action=corrections`) зі списком, редагуванням (олівець) та видаленням (корзина)
+- **modules/stock.php**: вибір товару зі списку (select) та поле "Собівартість" у модалці створення корекції
+- **includes/footer.php**: JS-функція `editCorrection()` для редагування корекцій
+- **includes/opencart_api.php**: поле `price_purchase` у синхронізації (0 за замовчуванням); окремий запит для знижок (`oc_product_discount`) замість GROUP_CONCAT LEFT JOIN
+- **api/sync-products.php**: підтримка пошуку товару за кодом (`?code=`)
+- **config.php, _helpers.php, includes/functions.php**: renderPagination тепер приймає необов'язковий 3-й параметр `$pageParam`
+- **api/check-oc-db.php**: діагностика OpenCart — вивід таблиць `tblProduct`, `tabTovar`, `tblPrice`
+
+### Виправлено
+- **includes/opencart_api.php**: PDO LIMIT/OFFSET тепер біндиться як `PDO::PARAM_INT` (виправлено помилку синтаксису SQL)
+- **includes/opencart_api.php**: ціни з `oc_product_discount` тепер визначаються у двох окремих запитах (без ламання `p.price` через GROUP BY) — працює bulk-синхронізація
+- **includes/opencart_api.php**: видалено зайву закриваючу дужку `}` (синтаксична помилка)
+
 ## [1.1.0] — 2026-05-19
 
 ### Додано

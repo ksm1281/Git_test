@@ -22,20 +22,17 @@ try {
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
     );
 
-    $stmt = $pdo->query("SHOW TABLES LIKE '%product%'");
-    $tables = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    echo "Таблиці з товарами:\n";
+    $targets = ['tblProduct', 'tabTovar', 'tblPrice'];
 
-    if (empty($tables)) {
-        echo "Таблиць з \"product\" не знайдено.\n\n";
-        echo "Всі таблиці:\n";
-        $all = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
-        foreach ($all as $t) {
-            echo "  $t\n";
-        }
-    } else {
-        echo "Знайдені таблиці з \"product\":\n";
-        foreach ($tables as $t) {
-            echo "  $t\n";
+    foreach ($targets as $table) {
+        $stmt = $pdo->query("SHOW TABLES LIKE '$table'");
+        $exists = $stmt->fetch();
+        if ($exists) {
+            $cnt = $pdo->query("SELECT COUNT(*) FROM `$table`")->fetchColumn();
+            echo "  ✅ $table ($cnt рядків)\n";
+        } else {
+            echo "  ❌ $table (не знайдено)\n";
         }
     }
 } catch (Exception $e) {

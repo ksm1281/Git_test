@@ -18,15 +18,15 @@
     <script src="<?php echo BASE_URL; ?>/assets/js/app.js"></script>
     <script>
     function syncOneProduct() {
-        var id = document.getElementById('syncOneId');
-        if (!id || !id.value || parseInt(id.value.replace(/\D/g, '')) < 1) { alert('Введіть ID товару'); return; }
-        id.value = parseInt(id.value.replace(/\D/g, ''));
+        var input = document.getElementById('syncOneId');
+        if (!input || !input.value.trim()) { alert('Введіть ID або код товару'); return; }
+        var val = input.value.trim();
         var btn = event.target;
         btn.disabled = true;
         var orig = btn.innerHTML;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>...';
 
-        fetch('<?php echo BASE_URL; ?>/api/sync-products.php?id=' + id.value)
+        fetch('<?php echo BASE_URL; ?>/api/sync-products.php?code=' + encodeURIComponent(val))
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (d.error) {
@@ -89,6 +89,16 @@
             });
     }
     document.addEventListener('DOMContentLoaded', loadSyncStatus);
+
+    function editCorrection(data) {
+        document.getElementById('edit_move_id').value = data.move_id;
+        document.getElementById('edit_product_id').value = data.product_id;
+        document.getElementById('edit_quantity').value = data.quantity;
+        document.getElementById('edit_cost_price').value = data.cost_price || '';
+        document.getElementById('edit_notes').value = data.notes || '';
+        var modal = new bootstrap.Modal(document.getElementById('editCorrectionModal'));
+        modal.show();
+    }
     </script>
 </body>
 </html>

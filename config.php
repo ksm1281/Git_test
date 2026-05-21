@@ -29,7 +29,7 @@ if (!defined('OC_DB_PREFIX')) define('OC_DB_PREFIX', 'oc_');
 
 // App Configuration
 define('APP_NAME', 'ERP/CRM');
-define('APP_VERSION', '1.0.0');
+define('APP_VERSION', '1.2.0');
 define('CURRENCY_SYMBOL', '&#8372;');
 define('CURRENCY_CODE', 'UAH');
 define('BASE_CURRENCY', 'UAH');
@@ -97,6 +97,7 @@ function initErpTables($pdo) {
             `price_wholesale` DECIMAL(15,4) DEFAULT 0,
             `price_semi_wholesale` DECIMAL(15,4) DEFAULT 0,
             `price_retail` DECIMAL(15,4) DEFAULT 0,
+            `price_purchase` DECIMAL(15,4) DEFAULT 0,
             `quantity` INT DEFAULT 0,
             `status` TINYINT DEFAULT 1,
             `date_synced` DATETIME,
@@ -355,6 +356,9 @@ function initErpTables($pdo) {
     }
     try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_office VARCHAR(255) DEFAULT NULL AFTER delivery_apartment"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_office VARCHAR(255) DEFAULT NULL AFTER delivery_apartment"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_products ADD COLUMN IF NOT EXISTS price_purchase DECIMAL(15,4) DEFAULT 0 AFTER price_retail"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_products ADD COLUMN price_purchase DECIMAL(15,4) DEFAULT 0 AFTER price_retail"); } catch (PDOException $e2) { /* ignore */ }
     }
 
     $stmt = $pdo->query("SELECT COUNT(*) FROM erp_cash_accounts");
@@ -686,17 +690,17 @@ function paginate($total, $perPage, $currentPage) {
 }
 
 if (!function_exists('renderPagination')) {
-function renderPagination($baseUrl, $pagination) {
+function renderPagination($baseUrl, $pagination, $pageParam = 'page') {
     if ($pagination['total_pages'] <= 1) return '';
     $html = '<nav><ul class="pagination justify-content-center">';
     $html .= '<li class="page-item ' . ($pagination['current_page'] <= 1 ? 'disabled' : '') . '">';
-    $html .= '<a class="page-link" href="' . $baseUrl . '&page=' . ($pagination['current_page'] - 1) . '">&laquo;</a></li>';
+    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($pagination['current_page'] - 1) . '">&laquo;</a></li>';
     for ($i = 1; $i <= $pagination['total_pages']; $i++) {
         $html .= '<li class="page-item ' . ($i === $pagination['current_page'] ? 'active' : '') . '">';
-        $html .= '<a class="page-link" href="' . $baseUrl . '&page=' . $i . '">' . $i . '</a></li>';
+        $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . $i . '">' . $i . '</a></li>';
     }
     $html .= '<li class="page-item ' . ($pagination['current_page'] >= $pagination['total_pages'] ? 'disabled' : '') . '">';
-    $html .= '<a class="page-link" href="' . $baseUrl . '&page=' . ($pagination['current_page'] + 1) . '">&raquo;</a></li>';
+    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($pagination['current_page'] + 1) . '">&raquo;</a></li>';
     $html .= '</ul></nav>';
     return $html;
 }

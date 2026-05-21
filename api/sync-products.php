@@ -11,12 +11,15 @@ if (!isAdmin()) {
     exit;
 }
 
+$code = trim($_GET['code'] ?? '');
 $singleId = (int)($_GET['id'] ?? 0);
 
 try {
     $api = new OpenCartDbClient();
 
-    if ($singleId) {
+    if ($code !== '') {
+        $result = $api->syncProductByCode($pdo, $code);
+    } elseif ($singleId) {
         $result = $api->syncProduct($pdo, $singleId);
     } else {
         $result = $api->syncProducts($pdo);
