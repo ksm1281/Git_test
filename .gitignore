@@ -5,3 +5,8 @@ node_modules/
 .DS_Store
 config.local.php
 AGENTS.md
+
+testsprite_tests/tmp/config.json
+test-results.json
+playwright-report/
+test-results/

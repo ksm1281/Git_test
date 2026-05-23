@@ -48,11 +48,6 @@ $currentPage = basename($_SERVER['PHP_SELF']);
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link <?php echo $currentPage === 'pricing.php' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/pricing.php">
-                            <i class="bi bi-currency-exchange"></i> Ціни
-                        </a>
-                    </li>
-                    <li class="nav-item">
                         <a class="nav-link <?php echo $currentPage === 'orders.php' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/orders.php">
                             <i class="bi bi-cart3"></i> Замовлення
                         </a>

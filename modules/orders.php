@@ -513,7 +513,7 @@ if ($action === 'create' || $action === 'edit') {
         $stmt->execute([$orderId]);
         $order = $stmt->fetch();
         if (!$order) { flashMessage('error', 'Замовлення не знайдено'); redirect(BASE_URL . '/modules/orders.php'); }
-        $stmt = $pdo->prepare("SELECT * FROM erp_order_products WHERE order_id=?");
+        $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id=?");
         $stmt->execute([$orderId]);
         $items = $stmt->fetchAll();
     }
@@ -630,15 +630,17 @@ if ($action === 'create' || $action === 'edit') {
                             <?php if ($isEdit && count($items) > 0): ?>
                                 <?php foreach ($items as $item): ?>
                                 <tr>
-                                    <td>
-                                        <select name="product_id[]" class="form-select product-select" required>
-                                            <option value="">-- Виберіть --</option>
-                                            <?php foreach ($products as $p): ?>
-                                            <option value="<?php echo $p['product_id']; ?>" data-retail="<?php echo (float)$p['price_retail']; ?>" data-wholesale="<?php echo (float)$p['price_wholesale']; ?>" data-semi="<?php echo (float)$p['price_semi_wholesale']; ?>" <?php echo $item['product_id'] == $p['product_id'] ? 'selected' : ''; ?>><?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
+                                    <td class="position-relative">
+                                        <input type="text" class="form-control form-control-sm product-autocomplete" placeholder="Пошук товару..." autocomplete="off" value="<?php echo $item['product_id'] ? escape($item['product_name'] ?? '') : ''; ?>">
+                                        <input type="hidden" name="product_id[]" class="product-id-input" value="<?php echo (int)$item['product_id']; ?>">
+                                        <div class="product-dropdown dropdown-menu" style="max-height:200px;overflow-y:auto;width:100%;"></div>
+                                        <div class="price-chips d-none mt-1 small">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="retail" title="Роздріб">Роздріб</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="semi" title="Дрібний опт">Дріб.опт</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="wholesale" title="Опт">Опт</button>
+                                        </div>
                                     </td>
-                                    <td><input type="number" name="quantity[]" class="form-control" step="0.01" min="0.01" required value="<?php echo (float)$item['quantity']; ?>"></td>
+                                    <td><input type="number" name="quantity[]" class="form-control" step="1" min="1" inputmode="numeric" required value="<?php echo (int)$item['quantity']; ?>"></td>
                                     <td><input type="number" name="price[]" class="form-control price-input" step="0.01" min="0" required value="<?php echo (float)$item['price']; ?>"></td>
                                     <td><span class="line-total fw-bold"><?php echo number_format((float)$item['total'], 2); ?></span></td>
                                     <td><button type="button" class="btn btn-outline-danger btn-sm remove-item"><i class="bi bi-trash"></i></button></td>
@@ -646,15 +648,17 @@ if ($action === 'create' || $action === 'edit') {
                                 <?php endforeach; ?>
                             <?php else: ?>
                             <tr>
-                                <td>
-                                    <select name="product_id[]" class="form-select product-select" required>
-                                        <option value="">-- Виберіть --</option>
-                                        <?php foreach ($products as $p): ?>
-                                        <option value="<?php echo $p['product_id']; ?>" data-retail="<?php echo (float)$p['price_retail']; ?>" data-wholesale="<?php echo (float)$p['price_wholesale']; ?>" data-semi="<?php echo (float)$p['price_semi_wholesale']; ?>"><?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
+                                <td class="position-relative">
+                                    <input type="text" class="form-control form-control-sm product-autocomplete" placeholder="Пошук товару..." autocomplete="off">
+                                    <input type="hidden" name="product_id[]" class="product-id-input" value="">
+                                    <div class="product-dropdown dropdown-menu" style="max-height:200px;overflow-y:auto;width:100%;"></div>
+                                    <div class="price-chips d-none mt-1 small">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="retail" title="Роздріб">Роздріб</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="semi" title="Дрібний опт">Дріб.опт</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="wholesale" title="Опт">Опт</button>
+                                    </div>
                                 </td>
-                                <td><input type="number" name="quantity[]" class="form-control" step="0.01" min="0.01" required></td>
+                                <td><input type="number" name="quantity[]" class="form-control" step="1" min="1" inputmode="numeric" required></td>
                                 <td><input type="number" name="price[]" class="form-control price-input" step="0.01" min="0" required></td>
                                 <td><span class="line-total fw-bold">0.00</span></td>
                                 <td><button type="button" class="btn btn-outline-danger btn-sm remove-item"><i class="bi bi-trash"></i></button></td>
@@ -705,6 +709,10 @@ if ($action === 'create' || $action === 'edit') {
         </div>
     </div>
     <script>
+    var productsData = <?php echo json_encode(array_map(function($p) {
+        return ['id' => (int)$p['product_id'], 'name' => $p['name'], 'model' => $p['model'], 'sku' => $p['sku'], 'retail' => (float)$p['price_retail'], 'wholesale' => (float)$p['price_wholesale'], 'semi' => (float)$p['price_semi_wholesale']];
+    }, $products), JSON_UNESCAPED_UNICODE); ?>;
+
     function toggleDeliveryFields() {
         const method = document.getElementById('deliveryMethod')?.value;
         document.querySelectorAll('.delivery-field').forEach(el => el.style.display = 'none');
@@ -715,15 +723,132 @@ if ($action === 'create' || $action === 'edit') {
         }
     }
     toggleDeliveryFields();
+
+    function initRow(row) {
+        var input = row.querySelector('.product-autocomplete');
+        var hidden = row.querySelector('.product-id-input');
+        var dropdown = row.querySelector('.product-dropdown');
+        var chips = row.querySelector('.price-chips');
+        if (!input || !hidden || !dropdown) return;
+
+        function selectProduct(id, name, prices) {
+            hidden.value = id;
+            input.value = name;
+            input._lastVal = name;
+            row._prices = prices;
+            dropdown.classList.remove('show');
+            if (chips) {
+                chips.classList.remove('d-none');
+                chips.querySelectorAll('.price-chip').forEach(function(c) { c.classList.remove('active'); });
+            }
+            var priceInput = row.querySelector('.price-input');
+            if (priceInput && prices) {
+                var val = prices.retail || prices.semi || prices.wholesale || 0;
+                priceInput.value = val.toFixed(2);
+                priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+                if (chips) {
+                    chips.querySelector('.price-chip[data-type="retail"]')?.classList.add('active');
+                }
+            }
+        }
+
+        function filterProducts(q) {
+            if (!q) { dropdown.classList.remove('show'); return; }
+            var lower = q.toLowerCase();
+            var matches = productsData.filter(function(p) {
+                return (p.name && p.name.toLowerCase().includes(lower)) ||
+                       (p.model && p.model.toLowerCase().includes(lower)) ||
+                       (p.sku && p.sku.toLowerCase().includes(lower));
+            }).slice(0, 20);
+            if (matches.length === 0) { dropdown.classList.remove('show'); return; }
+            dropdown.innerHTML = matches.map(function(p) {
+                var price = p.retail ? ' - ' + p.retail.toFixed(2) + ' ₴' : '';
+                return '<button class="dropdown-item" type="button" data-id="' + p.id + '" data-retail="' + p.retail + '" data-wholesale="' + p.wholesale + '" data-semi="' + p.semi + '">' + escapeHtml(p.name) + price + '</button>';
+            }).join('');
+            dropdown.classList.add('show');
+        }
+
+        input.addEventListener('input', function() {
+            if (this.value !== this._lastVal) {
+                hidden.value = '';
+                this._lastVal = this.value;
+                if (chips) chips.classList.add('d-none');
+            }
+            filterProducts(this.value);
+        });
+
+        input.addEventListener('blur', function() {
+            setTimeout(function() { dropdown.classList.remove('show'); }, 200);
+        });
+
+        input.addEventListener('focus', function() {
+            if (this.value) filterProducts(this.value);
+        });
+
+        dropdown.addEventListener('click', function(e) {
+            var btn = e.target.closest('.dropdown-item');
+            if (!btn) return;
+            var id = btn.dataset.id;
+            var prices = { retail: parseFloat(btn.dataset.retail) || 0, wholesale: parseFloat(btn.dataset.wholesale) || 0, semi: parseFloat(btn.dataset.semi) || 0 };
+            selectProduct(id, btn.textContent.replace(/ - [\d.]+ ₴$/, ''), prices);
+        });
+
+        if (chips) {
+            chips.addEventListener('click', function(e) {
+                var chip = e.target.closest('.price-chip');
+                if (!chip || !row._prices) return;
+                chips.querySelectorAll('.price-chip').forEach(function(c) { c.classList.remove('active'); });
+                chip.classList.add('active');
+                var type = chip.dataset.type;
+                var priceInput = row.querySelector('.price-input');
+                if (priceInput) {
+                    priceInput.value = (row._prices[type] || 0).toFixed(2);
+                    priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            });
+
+            var priceInput = row.querySelector('.price-input');
+            if (priceInput) {
+                priceInput.addEventListener('input', function() {
+                    chips.querySelectorAll('.price-chip').forEach(function(c) { c.classList.remove('active'); });
+                });
+            }
+        }
+
+        if (hidden.value && chips) {
+            var found = productsData.find(function(p) { return String(p.id) === hidden.value; });
+            if (found) {
+                row._prices = { retail: found.retail, wholesale: found.wholesale, semi: found.semi };
+                chips.classList.remove('d-none');
+            }
+        }
+    }
+
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    document.querySelectorAll('#itemsBody tr').forEach(initRow);
+
     document.getElementById('addItem')?.addEventListener('click', function() {
         const tbody = document.getElementById('itemsBody');
         const firstRow = tbody.querySelector('tr');
         const newRow = firstRow.cloneNode(true);
-        newRow.querySelectorAll('input').forEach(i => i.value = '');
-        newRow.querySelector('select').selectedIndex = 0;
+        newRow.querySelectorAll('input').forEach(function(i) {
+            if (i.classList.contains('product-autocomplete')) { i.value = ''; i._lastVal = ''; }
+            else if (i.classList.contains('product-id-input')) { i.value = ''; }
+            else i.value = '';
+        });
+        newRow.querySelector('.product-dropdown').innerHTML = '';
+        var chips = newRow.querySelector('.price-chips');
+        if (chips) chips.classList.add('d-none');
         newRow.querySelector('.line-total').textContent = '0.00';
         tbody.appendChild(newRow);
+        initRow(newRow);
     });
+
     document.addEventListener('click', function(e) {
         if (e.target.closest('.remove-item')) {
             const tbody = document.getElementById('itemsBody');
@@ -733,6 +858,7 @@ if ($action === 'create' || $action === 'edit') {
             }
         }
     });
+
     document.addEventListener('input', function(e) {
         if (e.target.classList.contains('price-input') || e.target.name.includes('quantity')) {
             const row = e.target.closest('tr');
@@ -744,6 +870,7 @@ if ($action === 'create' || $action === 'edit') {
             }
         }
     });
+
     function calcTotal() {
         let total = 0;
         document.querySelectorAll('.line-total').forEach(function(el) {

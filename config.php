@@ -29,7 +29,7 @@ if (!defined('OC_DB_PREFIX')) define('OC_DB_PREFIX', 'oc_');
 
 // App Configuration
 define('APP_NAME', 'ERP/CRM');
-define('APP_VERSION', '1.2.0');
+define('APP_VERSION', '1.5.0');
 define('CURRENCY_SYMBOL', '&#8372;');
 define('CURRENCY_CODE', 'UAH');
 define('BASE_CURRENCY', 'UAH');
@@ -103,6 +103,24 @@ function initErpTables($pdo) {
             `date_synced` DATETIME,
             `date_added` DATETIME DEFAULT CURRENT_TIMESTAMP,
             `date_modified` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `erp_categories` (
+            `category_id` INT AUTO_INCREMENT PRIMARY KEY,
+            `name` VARCHAR(128) NOT NULL,
+            `parent_id` INT DEFAULT 0,
+            `sort_order` INT DEFAULT 0,
+            `date_added` DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `erp_product_categories` (
+            `product_id` INT NOT NULL,
+            `category_id` INT NOT NULL,
+            PRIMARY KEY (`product_id`, `category_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
@@ -763,5 +781,44 @@ function num2str($num) {
         $words .= ' ' . $kopiyky . ' ' . $pluralForm($kopiyky, $kopiykyForms);
     }
     return $words;
+}
+
+if (!function_exists('getCategories')) {
+function getCategories($pdo) {
+    $stmt = $pdo->query("SELECT * FROM erp_categories ORDER BY sort_order ASC, name ASC");
+    return $stmt->fetchAll();
+}
+}
+
+if (!function_exists('getProductCategoryIds')) {
+function getProductCategoryIds($pdo, $productId) {
+    $stmt = $pdo->prepare("SELECT category_id FROM erp_product_categories WHERE product_id = ?");
+    $stmt->execute([$productId]);
+    return $stmt->fetchAll(PDO::FETCH_COLUMN);
+}
+}
+
+if (!function_exists('getCategoryFilter')) {
+function getCategoryFilter($pdo, $selectedCategoryId = 0) {
+    $categories = getCategories($pdo);
+    $html = '<select name="category_id" class="form-select form-select-sm" style="max-width:200px;" onchange="this.form.submit()">';
+    $html .= '<option value="">Всі категорії</option>';
+    foreach ($categories as $c) {
+        $sel = (int)$selectedCategoryId === (int)$c['category_id'] ? ' selected' : '';
+        $html .= '<option value="' . (int)$c['category_id'] . '"' . $sel . '>' . escape($c['name']) . '</option>';
+    }
+    $html .= '</select>';
+    return $html;
+}
+}
+
+if (!function_exists('getCategoryName')) {
+function getCategoryName($pdo, $categoryId) {
+    if (!$categoryId) return '-';
+    $stmt = $pdo->prepare("SELECT name FROM erp_categories WHERE category_id = ?");
+    $stmt->execute([$categoryId]);
+    $row = $stmt->fetch();
+    return $row ? $row['name'] : '-';
+}
 }
 }

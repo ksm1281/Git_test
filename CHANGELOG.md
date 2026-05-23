@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.5.0] — 2026-05-23
+
+### Додано
+- **api/push-prices.php**: новий API-ендпоінт — перераховує всі ціни на основі поточних курсів + націнок і відправляє на сайт OpenCart
+- **includes/opencart_api.php**: методи `updateProductPrice()` та `pushPrices()` у `OpenCartDbClient` — запис цін прямо в БД OpenCart
+- **modules/stock.php**: кнопка "Застосувати курси → Сайт" у вкладці Ціни (для адміна)
+- **Категорії товарів**: таблиці `erp_categories` + `erp_product_categories`, управління категоріями (`?action=categories`), фільтр за категорією на всіх вкладках Складу
+- **modules/stock.php**: колонка "Категорія" у списках товарів (Товари, Ціни); вибір категорій у модалці редагування товару
+- **modules/stock.php**: пошуковий автокомпліт для вибору товару в модалці нової корекції (замість величезного `<select>`)
+
+### Змінено
+- **includes/opencart_api.php**: синхронізація OC→ERP більше не перезаписує `price_purchase` — закупівельна ціна залишається недоторканою для коректної статистики
+- **modules/stock.php**: виправлено виклик неіснуючої функції `calcMarkupPrice` → `calculatePrice` (помилка вкладки Ціни)
+- **includes/footer.php**: додано глобальну функцію `escapeHtml()` та оновлено `editProduct()` для підтримки категорій
+- **config.php**: додано таблиці `erp_categories` та `erp_product_categories`, допоміжні функції `getCategories()`, `getProductCategoryIds()`, `getCategoryFilter()`, `getCategoryName()`
+
+## [1.4.0] — 2026-05-23
+
+### Додано
+- **api/push-prices.php**: новий API-ендпоінт — перераховує всі ціни на основі поточних курсів + націнок і відправляє на сайт OpenCart
+- **includes/opencart_api.php**: методи `updateProductPrice()` та `pushPrices()` у `OpenCartDbClient` — запис цін прямо в БД OpenCart
+- **modules/stock.php**: кнопка "Застосувати курси → Сайт" у вкладці Ціни (для адміна)
+
+### Змінено
+- **includes/opencart_api.php**: синхронізація OC→ERP більше не перезаписує `price_purchase` — закупівельна ціна залишається недоторканою для коректної статистики
+- **modules/stock.php**: виправлено виклик неіснуючої функції `calcMarkupPrice` → `calculatePrice` (помилка вкладки Ціни)
+
+## [1.3.0] — 2026-05-22
+
+### Додано
+- **modules/stock.php**: кнопка "Редагувати товар" (✏️) у списку товарів — модальне вікно для зміни назви, моделі, SKU та цін
+- **modules/stock.php**: обробник `action=edit_product` для збереження змін товару
+- **includes/footer.php**: JS-функція `editProduct()` для заповнення модалки редагування товару
+
+### Змінено
+- **includes/opencart_api.php**: синхронізація з OpenCart більше НЕ перезаписує ціни (`price_wholesale`, `price_semi_wholesale`, `price_retail`) — оновлюються лише назва, модель, SKU, фото, кількість, статус
+- **includes/opencart_api.php**: видалено непотрібні запити до `oc_product_discount` після відділення цін від синхронізації
+- **includes/opencart_api.php**: додано `uk-ua` до пріоритету мови синхронізації (було: uk→ru→en, стало: uk→uk-ua→ru→en)
+- **modules/orders.php**: додано автопошук товару (по перших літерах) з випадаючим списком та автопідстановкою ціни в формі замовлення
+- **modules/stock.php**: додано вкладку **Ціни** — об'єднано сторінку ціноутворення зі складом; перенесено відображення курсів, націнок, правил ціноутворення та модалок
+- **modules/pricing.php**: видалено (тепер все в stock.php)
+- **includes/header.php**: прибрано пункт меню "Ціни" — тепер це вкладка на сторінці складу
+
 ## [1.2.0] — 2026-05-21
 
 ### Додано

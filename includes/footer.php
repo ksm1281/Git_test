@@ -17,6 +17,12 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="<?php echo BASE_URL; ?>/assets/js/app.js"></script>
     <script>
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
     function syncOneProduct() {
         var input = document.getElementById('syncOneId');
         if (!input || !input.value.trim()) { alert('Введіть ID або код товару'); return; }
@@ -89,6 +95,26 @@
             });
     }
     document.addEventListener('DOMContentLoaded', loadSyncStatus);
+
+    function editProduct(data) {
+        document.getElementById('edit_product_id').value = data.product_id;
+        document.getElementById('edit_name').value = data.name || '';
+        document.getElementById('edit_model').value = data.model || '';
+        document.getElementById('edit_sku').value = data.sku || '';
+        document.getElementById('edit_price_wholesale').value = data.price_wholesale || '';
+        document.getElementById('edit_price_semi').value = data.price_semi_wholesale || '';
+        document.getElementById('edit_price_retail').value = data.price_retail || '';
+        document.getElementById('edit_price_purchase').value = data.price_purchase || '';
+        var catSelect = document.getElementById('edit_categories');
+        if (catSelect) {
+            var ids = data.category_ids || [];
+            for (var i = 0; i < catSelect.options.length; i++) {
+                catSelect.options[i].selected = ids.indexOf(parseInt(catSelect.options[i].value)) !== -1;
+            }
+        }
+        var modal = new bootstrap.Modal(document.getElementById('editProductModal'));
+        modal.show();
+    }
 
     function editCorrection(data) {
         document.getElementById('edit_move_id').value = data.move_id;

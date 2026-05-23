@@ -107,23 +107,14 @@ class OpenCartApiClient {
         $p = $data['product'] ?? null;
         if (!$p) throw new Exception('Product not found: ' . $id);
 
-        $priceRetail = (float)($p['price'] ?? 0);
-        $priceSemi = $p['disc_semi'] !== null ? (float)$p['disc_semi'] : $priceRetail;
-        $priceWhole = $p['disc_whole'] !== null && $p['disc_whole'] !== $p['disc_semi'] ? (float)$p['disc_whole'] : $priceRetail;
-
         $stmt = $pdo->prepare("
-            INSERT INTO erp_products (product_id, model, sku, name, image, quantity, status, price_wholesale, price_semi_wholesale, price_retail, price_purchase, date_synced)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+            INSERT INTO erp_products (product_id, model, sku, name, image, quantity, status, date_synced)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE
-                model = VALUES(model),
-                sku = VALUES(sku),
                 name = VALUES(name),
                 image = VALUES(image),
                 quantity = VALUES(quantity),
                 status = VALUES(status),
-                price_wholesale = VALUES(price_wholesale),
-                price_semi_wholesale = VALUES(price_semi_wholesale),
-                price_retail = VALUES(price_retail),
                 date_synced = NOW()
         ");
         $stmt->execute([
@@ -134,9 +125,6 @@ class OpenCartApiClient {
             $p['image'] ?? '',
             (int)($p['quantity'] ?? 0),
             (int)($p['status'] ?? 1),
-            $priceWhole,
-            $priceSemi,
-            $priceRetail,
         ]);
 
         $stmt = $pdo->prepare("INSERT INTO erp_sync_log (type, status, records_synced, message) VALUES ('products', 'success', 1, ?)");
@@ -164,8 +152,8 @@ class OpenCartApiClient {
                 if (empty($products)) continue;
 
                 $stmt = $pdo->prepare("
-                    INSERT INTO erp_products (product_id, model, sku, name, image, quantity, status, price_wholesale, price_semi_wholesale, price_retail, price_purchase, date_synced)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+                    INSERT INTO erp_products (product_id, model, sku, name, image, quantity, status, date_synced)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
                     ON DUPLICATE KEY UPDATE
                         model = VALUES(model),
                         sku = VALUES(sku),
@@ -173,9 +161,6 @@ class OpenCartApiClient {
                         image = VALUES(image),
                         quantity = VALUES(quantity),
                         status = VALUES(status),
-                        price_wholesale = VALUES(price_wholesale),
-                        price_semi_wholesale = VALUES(price_semi_wholesale),
-                        price_retail = VALUES(price_retail),
                         date_synced = NOW()
                 ");
 
@@ -188,9 +173,6 @@ class OpenCartApiClient {
                         $p['image'] ?? '',
                         (int)($p['quantity'] ?? 0),
                         (int)($p['status'] ?? 1),
-                        (float)($p['price'] ?? 0),
-                        (float)($p['price'] ?? 0),
-                        (float)($p['price'] ?? 0),
                     ]);
                     $synced++;
                 }
@@ -391,6 +373,7 @@ class OpenCartDbClient {
             LEFT JOIN {$prefix}product_description pd ON p.product_id = pd.product_id
                 AND pd.language_id = COALESCE(
                     (SELECT language_id FROM {$prefix}language WHERE code = 'uk' LIMIT 1),
+                    (SELECT language_id FROM {$prefix}language WHERE code = 'uk-ua' LIMIT 1),
                     (SELECT language_id FROM {$prefix}language WHERE code = 'ru' LIMIT 1),
                     (SELECT language_id FROM {$prefix}language WHERE code = 'en' LIMIT 1),
                     (SELECT MIN(language_id) FROM {$prefix}language LIMIT 1)
@@ -421,6 +404,7 @@ class OpenCartDbClient {
             LEFT JOIN {$prefix}product_description pd ON p.product_id = pd.product_id
                 AND pd.language_id = COALESCE(
                     (SELECT language_id FROM {$prefix}language WHERE code = 'uk' LIMIT 1),
+                    (SELECT language_id FROM {$prefix}language WHERE code = 'uk-ua' LIMIT 1),
                     (SELECT language_id FROM {$prefix}language WHERE code = 'ru' LIMIT 1),
                     (SELECT language_id FROM {$prefix}language WHERE code = 'en' LIMIT 1),
                     (SELECT MIN(language_id) FROM {$prefix}language LIMIT 1)
@@ -483,24 +467,14 @@ class OpenCartDbClient {
         $p = $data['product'] ?? null;
         if (!$p) throw new Exception('Product not found: ' . $id);
 
-        $priceRetail = (float)($p['price'] ?? 0);
-        $discounts = $p['discounts'] ?? [];
-        $priceSemi = isset($discounts[0]) ? (float)$discounts[0]['price'] : $priceRetail;
-        $priceWhole = isset($discounts[1]) ? (float)$discounts[1]['price'] : $priceRetail;
-
         $stmt = $pdo->prepare("
-            INSERT INTO erp_products (product_id, model, sku, name, image, quantity, status, price_wholesale, price_semi_wholesale, price_retail, price_purchase, date_synced)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+            INSERT INTO erp_products (product_id, model, sku, name, image, quantity, status, date_synced)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE
-                model = VALUES(model),
-                sku = VALUES(sku),
                 name = VALUES(name),
                 image = VALUES(image),
                 quantity = VALUES(quantity),
                 status = VALUES(status),
-                price_wholesale = VALUES(price_wholesale),
-                price_semi_wholesale = VALUES(price_semi_wholesale),
-                price_retail = VALUES(price_retail),
                 date_synced = NOW()
         ");
         $stmt->execute([
@@ -511,9 +485,6 @@ class OpenCartDbClient {
             $p['image'] ?? '',
             (int)($p['quantity'] ?? 0),
             (int)($p['status'] ?? 1),
-            $priceWhole,
-            $priceSemi,
-            $priceRetail,
         ]);
 
         $stmt = $pdo->prepare("INSERT INTO erp_sync_log (type, status, records_synced, message) VALUES ('products', 'success', 1, ?)");
@@ -530,24 +501,20 @@ class OpenCartDbClient {
         $synced = 0;
 
         $upsert = $pdo->prepare("
-            INSERT INTO erp_products (product_id, model, sku, name, image, quantity, status, price_wholesale, price_semi_wholesale, price_retail, price_purchase, date_synced)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW())
+            INSERT INTO erp_products (product_id, model, sku, name, image, quantity, status, date_synced)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE
-                model = VALUES(model),
-                sku = VALUES(sku),
                 name = VALUES(name),
                 image = VALUES(image),
                 quantity = VALUES(quantity),
                 status = VALUES(status),
-                price_wholesale = VALUES(price_wholesale),
-                price_semi_wholesale = VALUES(price_semi_wholesale),
-                price_retail = VALUES(price_retail),
                 date_synced = NOW()
         ");
 
         $langId = $this->pdo->query("
             SELECT COALESCE(
                 (SELECT language_id FROM {$prefix}language WHERE code = 'uk' LIMIT 1),
+                (SELECT language_id FROM {$prefix}language WHERE code = 'uk-ua' LIMIT 1),
                 (SELECT language_id FROM {$prefix}language WHERE code = 'ru' LIMIT 1),
                 (SELECT language_id FROM {$prefix}language WHERE code = 'en' LIMIT 1),
                 (SELECT MIN(language_id) FROM {$prefix}language LIMIT 1)
@@ -557,7 +524,7 @@ class OpenCartDbClient {
         for ($page = 1; $page <= $pages; $page++) {
             $offset = ($page - 1) * $limit;
             $rows = $this->pdo->prepare("
-                SELECT p.product_id, p.model, p.sku, pd.name, p.image, p.quantity, p.status, p.price
+                SELECT p.product_id, p.model, p.sku, pd.name, p.image, p.quantity, p.status
                 FROM {$prefix}product p
                 LEFT JOIN {$prefix}product_description pd ON p.product_id = pd.product_id AND pd.language_id = ?
                 ORDER BY p.product_id ASC
@@ -570,29 +537,8 @@ class OpenCartDbClient {
             $products = $rows->fetchAll();
             if (empty($products)) continue;
 
-            $ids = array_column($products, 'product_id');
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $discStmt = $this->pdo->prepare("
-                SELECT product_id, price, quantity FROM {$prefix}product_discount
-                WHERE product_id IN ($placeholders) AND quantity > 0
-                ORDER BY product_id, quantity ASC
-            ");
-            $discStmt->execute($ids);
-            $discMap = [];
-            foreach ($discStmt->fetchAll() as $d) {
-                $pid = (int)$d['product_id'];
-                if (!isset($discMap[$pid])) $discMap[$pid] = [];
-                if (count($discMap[$pid]) < 2) {
-                    $discMap[$pid][] = (float)$d['price'];
-                }
-            }
-
             foreach ($products as $p) {
                 $pid = (int)$p['product_id'];
-                $priceRetail = (float)($p['price'] ?? 0);
-                $discounts = $discMap[$pid] ?? [];
-                $priceSemi = $discounts[0] ?? $priceRetail;
-                $priceWhole = $discounts[1] ?? $priceRetail;
 
                 $upsert->execute([
                     $pid,
@@ -602,9 +548,6 @@ class OpenCartDbClient {
                     $p['image'] ?? '',
                     (int)($p['quantity'] ?? 0),
                     (int)($p['status'] ?? 1),
-                    $priceWhole,
-                    $priceSemi,
-                    $priceRetail,
                 ]);
                 $synced++;
             }
@@ -616,5 +559,43 @@ class OpenCartDbClient {
         $stmt->execute([$status, $synced, $msg]);
 
         return ['synced' => $synced, 'total' => $total, 'status' => $status, 'message' => $msg];
+    }
+
+    public function updateProductPrice($productId, $price) {
+        $prefix = OC_DB_PREFIX;
+        $stmt = $this->pdo->prepare("UPDATE {$prefix}product SET price = ? WHERE product_id = ?");
+        $stmt->execute([$price, $productId]);
+        return $stmt->rowCount();
+    }
+
+    public function pushPrices($pdo, $products) {
+        $prefix = OC_DB_PREFIX;
+        $updated = 0;
+        $errors = [];
+
+        $this->pdo->beginTransaction();
+        try {
+            $stmt = $this->pdo->prepare("UPDATE {$prefix}product SET price = ? WHERE product_id = ?");
+            foreach ($products as $p) {
+                try {
+                    $stmt->execute([$p['price_retail'], $p['product_id']]);
+                    $updated++;
+                } catch (Exception $e) {
+                    $errors[] = "ID {$p['product_id']}: " . $e->getMessage();
+                }
+            }
+            $this->pdo->commit();
+        } catch (Exception $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+
+        $msg = "Оновлено цін на сайті: $updated";
+        if ($errors) $msg .= '. Помилки: ' . implode('; ', array_slice($errors, 0, 5));
+
+        $stmt = $pdo->prepare("INSERT INTO erp_sync_log (type, status, records_synced, message) VALUES ('prices', ?, ?, ?)");
+        $stmt->execute([empty($errors) ? 'success' : 'partial', $updated, $msg]);
+
+        return ['updated' => $updated, 'errors' => $errors, 'message' => $msg];
     }
 }
