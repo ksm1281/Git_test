@@ -1041,6 +1041,9 @@ include __DIR__ . '/../includes/header.php';
                             <button class="btn btn-sm btn-outline-primary" onclick='editProduct(<?php echo json_encode(array_merge($p, ['category_ids' => $productCategoryIds[$p['product_id']] ?? []]), JSON_UNESCAPED_UNICODE); ?>)' title="Редагувати товар">
                                 <i class="bi bi-pencil"></i>
                             </button>
+                            <button class="btn btn-sm btn-outline-success" onclick="openAdjust(<?php echo (int)$p['product_id']; ?>)" title="Корекція кількості">
+                                <i class="bi bi-arrow-up-down"></i>
+                            </button>
                             <a href="<?php echo BASE_URL; ?>/modules/stock.php?action=moves&id=<?php echo (int)$p['product_id']; ?>" class="btn btn-sm btn-outline-info" title="Рух товару">
                                 <i class="bi bi-arrow-left-right"></i>
                             </a>
@@ -1192,6 +1195,20 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+function openAdjust(productId) {
+    var p = adjustProducts.find(function(p) { return p.id === productId; });
+    if (!p) return;
+    var input = document.getElementById('adjustProductSearch');
+    var hidden = document.getElementById('adjustProductId');
+    if (input && hidden) {
+        hidden.value = p.id;
+        input.value = p.name + (p.model ? ' (' + p.model + ')' : '');
+        input._lastVal = input.value;
+        var modal = new bootstrap.Modal(document.getElementById('adjustModal'));
+        modal.show();
+    }
+}
+
 var adjustProducts = <?php
 $allP = $pdo->query("SELECT product_id, name, model, sku FROM erp_products ORDER BY name ASC")->fetchAll();
 echo json_encode(array_map(function($ap) {
