@@ -866,6 +866,11 @@ if ($action === 'corrections') {
     <?php exit;
 }
 
+$categoryId = (int)($_GET['category_id'] ?? 0);
+$joinCategory = '';
+if ($categoryId) {
+    $joinCategory = "INNER JOIN erp_product_categories pc ON p.product_id = pc.product_id AND pc.category_id = ?";
+}
 $where = '';
 $params = [];
 if ($search) {
