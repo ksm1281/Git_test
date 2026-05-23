@@ -639,9 +639,10 @@ if ($action === 'pricing') {
 
     <style>
     .table-product { table-layout: auto; }
-    .table-product th, .table-product td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0.4rem 0.5rem; }
-    .table-product .col-actions { overflow: visible; }
-    .table-product .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+    .table.table-product > :not(caption) > * > th,
+    .table.table-product > :not(caption) > * > td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0.4rem 0.5rem; }
+    .table.table-product > :not(caption) > * > .col-actions { overflow: visible; }
+    .table.table-product .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
     </style>
     <script>
     function toggleAllPricing(checked) {
