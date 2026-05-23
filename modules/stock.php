@@ -469,7 +469,7 @@ if ($action === 'pricing') {
         <div class="card-body p-0">
             <?php if (count($pricingProducts) > 0): ?>
             <div class="table-container">
-                <table class="table table-hover mb-0 table-product">
+                <table id="pricing-table" class="table table-hover mb-0 table-product">
                     <thead>
                         <tr>
                             <th style="width:36px;"><input type="checkbox" id="selectAllPricing" onchange="toggleAllPricing(this.checked)"></th>
@@ -510,7 +510,7 @@ if ($action === 'pricing') {
                                 <span class="badge bg-warning text-dark">Немає в наявності</span>
                                 <?php endif; ?>
                             </td>
-                            <td class="td-cat"><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $pCats ? escape(implode(', ', $pCats)) : '-'; ?></span></td>
+                            <td><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $pCats ? escape(implode(', ', $pCats)) : '-'; ?></span></td>
                             <td class="text-center fw-bold"><?php echo (int)$stockQty; ?></td>
                             <td class="text-center"><?php echo $purchaseCur; ?></td>
                             <td class="text-end"><?php echo $costForeign > 0 ? formatMoneyForeign($costForeign, $purchaseCur) : '-'; ?></td>
@@ -640,7 +640,6 @@ if ($action === 'pricing') {
     <style>
     .table-product th, .table-product td { white-space: nowrap; padding: 0.4rem 0.5rem; }
     .table-product .cell-text { white-space: normal; overflow: hidden; text-overflow: ellipsis; }
-    .table-product .td-cat { max-width:130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     </style>
     <script>
     function toggleAllPricing(checked) {
@@ -972,7 +971,7 @@ include __DIR__ . '/../includes/header.php';
     <div class="card-body p-0">
         <?php if (count($products) > 0): ?>
         <div class="table-container">
-            <table class="table table-hover mb-0 table-product">
+            <table id="products-table" class="table table-hover mb-0 table-product">
                 <thead>
                     <tr>
                         <th>ID</th>
@@ -1001,7 +1000,7 @@ include __DIR__ . '/../includes/header.php';
                         </td>
                         <td><?php echo escape($p['model'] ?: '-'); ?></td>
                         <td><?php echo escape($p['sku'] ?: '-'); ?></td>
-                        <td class="td-cat"><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $cats ? escape(implode(', ', $cats)) : '-'; ?></span></td>
+                        <td><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $cats ? escape(implode(', ', $cats)) : '-'; ?></span></td>
                         <td class="text-center fw-bold"><?php echo (int)$stockQty; ?></td>
                         <td class="text-end"><?php echo $p['price_wholesale'] ? formatMoney($p['price_wholesale']) : '-'; ?></td>
                         <td class="text-end"><?php echo $p['price_semi_wholesale'] ? formatMoney($p['price_semi_wholesale']) : '-'; ?></td>

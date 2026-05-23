@@ -140,6 +140,56 @@
         var modal = new bootstrap.Modal(document.getElementById('editCorrectionModal'));
         modal.show();
     }
+
+    (function() {
+        var storageKey = 'erp_col_widths';
+        var saved = {};
+        try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch(e) {}
+
+        document.querySelectorAll('table.table-product').forEach(function(table) {
+            var id = table.id || 'tbl_' + Math.random().toString(36).slice(2, 6);
+            if (!table.id) table.id = id;
+
+            var heads = table.querySelectorAll('th');
+            heads.forEach(function(th, i) {
+                var savedW = saved[id + '_' + i];
+                if (savedW) th.style.width = savedW + 'px';
+
+                var handle = document.createElement('div');
+                handle.style.cssText = 'position:absolute;right:0;top:0;bottom:0;width:5px;cursor:col-resize;z-index:1;';
+                th.style.position = 'relative';
+                th.appendChild(handle);
+
+                var startX, startW;
+                handle.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                    startX = e.clientX;
+                    startW = th.offsetWidth;
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+
+                    var onMove = function(ev) {
+                        var diff = ev.clientX - startX;
+                        var newW = Math.max(30, startW + diff);
+                        th.style.width = newW + 'px';
+                        th.style.minWidth = newW + 'px';
+                        th.style.maxWidth = newW + 'px';
+                    };
+                    var onUp = function() {
+                        document.body.style.cursor = '';
+                        document.body.style.userSelect = '';
+                        var w = th.offsetWidth;
+                        saved[id + '_' + i] = w;
+                        try { localStorage.setItem(storageKey, JSON.stringify(saved)); } catch(e) {}
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                    };
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                });
+            });
+        });
+    })();
     </script>
 </body>
 </html>
