@@ -470,9 +470,22 @@ if ($action === 'pricing') {
             <?php if (count($pricingProducts) > 0): ?>
             <div class="table-container">
                 <table id="pricing-table" class="table table-hover mb-0 table-product">
+                    <colgroup>
+                        <col style="width:36px">
+                        <col style="width:auto">
+                        <col style="width:110px">
+                        <col style="width:70px">
+                        <col style="width:60px">
+                        <col style="width:100px">
+                        <col style="width:105px">
+                        <col style="width:85px">
+                        <col style="width:85px">
+                        <col style="width:85px">
+                        <col style="width:70px">
+                    </colgroup>
                     <thead>
                         <tr>
-                            <th style="width:36px;"><input type="checkbox" id="selectAllPricing" onchange="toggleAllPricing(this.checked)"></th>
+                            <th><input type="checkbox" id="selectAllPricing" onchange="toggleAllPricing(this.checked)"></th>
                             <th>Товар</th>
                             <th>Категорія</th>
                             <th class="text-center">Залишок</th>
@@ -638,11 +651,11 @@ if ($action === 'pricing') {
     <?php endif; ?>
 
     <style>
-    .table-product { table-layout: auto; }
+    .table-product { table-layout: fixed; }
     .table.table-product > :not(caption) > * > th,
     .table.table-product > :not(caption) > * > td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0.4rem 0.5rem; }
     .table.table-product > :not(caption) > * > .col-actions { overflow: visible; }
-    .table.table-product .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+    .table.table-product .badge { max-width: 100%; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; display: inline-block; vertical-align: middle; }
     </style>
     <script>
     function toggleAllPricing(checked) {
@@ -975,6 +988,19 @@ include __DIR__ . '/../includes/header.php';
         <?php if (count($products) > 0): ?>
         <div class="table-container">
             <table id="products-table" class="table table-hover mb-0 table-product">
+                <colgroup>
+                    <col style="width:50px">
+                    <col style="width:auto">
+                    <col style="width:100px">
+                    <col style="width:90px">
+                    <col style="width:110px">
+                    <col style="width:75px">
+                    <col style="width:80px">
+                    <col style="width:80px">
+                    <col style="width:80px">
+                    <col style="width:85px">
+                    <col style="width:85px">
+                </colgroup>
                 <thead>
                     <tr>
                         <th>ID</th>
