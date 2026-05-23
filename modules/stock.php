@@ -469,20 +469,20 @@ if ($action === 'pricing') {
         <div class="card-body p-0">
             <?php if (count($pricingProducts) > 0): ?>
             <div class="table-container">
-                <table class="table table-hover mb-0 table-fixed">
+                <table class="table table-hover mb-0 table-product">
                     <thead>
                         <tr>
                             <th style="width:36px;"><input type="checkbox" id="selectAllPricing" onchange="toggleAllPricing(this.checked)"></th>
-                            <th style="min-width:160px;">Товар</th>
-                            <th style="width:100px;">Категорія</th>
-                            <th style="width:70px;" class="text-center">Залишок</th>
-                            <th style="width:60px;" class="text-center">Валюта</th>
-                            <th style="width:100px;" class="text-end">Собівартість</th>
-                            <th style="width:105px;" class="text-end">Собівартість (UAH)</th>
-                            <th style="width:85px;" class="text-end">Опт</th>
-                            <th style="width:85px;" class="text-end">Дріб. опт</th>
-                            <th style="width:85px;" class="text-end">Роздріб</th>
-                            <th style="width:70px;" class="text-center">Дії</th>
+                            <th>Товар</th>
+                            <th>Категорія</th>
+                            <th class="text-center">Залишок</th>
+                            <th class="text-center">Валюта</th>
+                            <th class="text-end">Собівартість</th>
+                            <th class="text-end">Собівартість (UAH)</th>
+                            <th class="text-end">Опт</th>
+                            <th class="text-end">Дріб. опт</th>
+                            <th class="text-end">Роздріб</th>
+                            <th class="text-center">Дії</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -510,7 +510,7 @@ if ($action === 'pricing') {
                                 <span class="badge bg-warning text-dark">Немає в наявності</span>
                                 <?php endif; ?>
                             </td>
-                            <td><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $pCats ? escape(implode(', ', $pCats)) : '-'; ?></span></td>
+                            <td class="td-cat"><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $pCats ? escape(implode(', ', $pCats)) : '-'; ?></span></td>
                             <td class="text-center fw-bold"><?php echo (int)$stockQty; ?></td>
                             <td class="text-center"><?php echo $purchaseCur; ?></td>
                             <td class="text-end"><?php echo $costForeign > 0 ? formatMoneyForeign($costForeign, $purchaseCur) : '-'; ?></td>
@@ -638,16 +638,9 @@ if ($action === 'pricing') {
     <?php endif; ?>
 
     <style>
-    .table-fixed { table-layout: fixed; }
-    .col-id { width:50px; }
-    .col-name { min-width:140px; }
-    .col-model { width:100px; }
-    .col-sku { width:90px; }
-    .col-cat { width:110px; }
-    .col-qty { width:75px; }
-    .col-price { width:80px; }
-    .col-cost { width:100px; }
-    .col-actions { width:85px; }
+    .table-product th, .table-product td { white-space: nowrap; padding: 0.4rem 0.5rem; }
+    .table-product .cell-text { white-space: normal; overflow: hidden; text-overflow: ellipsis; }
+    .table-product .td-cat { max-width:130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     </style>
     <script>
     function toggleAllPricing(checked) {
@@ -979,22 +972,22 @@ include __DIR__ . '/../includes/header.php';
     <div class="card-body p-0">
         <?php if (count($products) > 0): ?>
         <div class="table-container">
-            <table class="table table-hover mb-0 table-fixed">
+            <table class="table table-hover mb-0 table-product">
                 <thead>
                     <tr>
-                        <th style="width:50px;">ID</th>
-                            <th style="min-width:140px;">Назва</th>
-                            <th style="width:100px;">Модель</th>
-                            <th style="width:90px;">SKU</th>
-                            <th style="width:110px;">Категорія</th>
-                            <th style="width:75px;" class="text-center">На складі</th>
-                            <th style="width:80px;" class="text-end">Опт</th>
-                            <th style="width:80px;" class="text-end">Дрібний опт</th>
-                            <th style="width:80px;" class="text-end">Роздріб</th>
-                            <th style="width:85px;" class="text-end">Закупівля</th>
-                            <th style="width:85px;" class="text-center">Дії</th>
-                        </tr>
-                    </thead>
+                        <th>ID</th>
+                        <th>Назва</th>
+                        <th>Модель</th>
+                        <th>SKU</th>
+                        <th>Категорія</th>
+                        <th class="text-center">На складі</th>
+                        <th class="text-end">Опт</th>
+                        <th class="text-end">Дрібний опт</th>
+                        <th class="text-end">Роздріб</th>
+                        <th class="text-end">Закупівля</th>
+                        <th class="text-center">Дії</th>
+                    </tr>
+                </thead>
                 <tbody>
                     <?php foreach ($products as $p): ?>
                     <?php $stockQty = (float)$p['stock_qty']; ?>
@@ -1008,7 +1001,7 @@ include __DIR__ . '/../includes/header.php';
                         </td>
                         <td><?php echo escape($p['model'] ?: '-'); ?></td>
                         <td><?php echo escape($p['sku'] ?: '-'); ?></td>
-                        <td><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $cats ? escape(implode(', ', $cats)) : '-'; ?></span></td>
+                        <td class="td-cat"><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $cats ? escape(implode(', ', $cats)) : '-'; ?></span></td>
                         <td class="text-center fw-bold"><?php echo (int)$stockQty; ?></td>
                         <td class="text-end"><?php echo $p['price_wholesale'] ? formatMoney($p['price_wholesale']) : '-'; ?></td>
                         <td class="text-end"><?php echo $p['price_semi_wholesale'] ? formatMoney($p['price_semi_wholesale']) : '-'; ?></td>
