@@ -23,6 +23,20 @@
         return div.innerHTML;
     }
 
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('category-filter')) {
+            var url = new URL(window.location.href);
+            if (e.target.value) {
+                url.searchParams.set('category_id', e.target.value);
+            } else {
+                url.searchParams.delete('category_id');
+            }
+            url.searchParams.delete('pricing_page');
+            url.searchParams.delete('page');
+            window.location.href = url.toString();
+        }
+    });
+
     function syncOneProduct() {
         var input = document.getElementById('syncOneId');
         if (!input || !input.value.trim()) { alert('Введіть ID або код товару'); return; }
@@ -105,11 +119,12 @@
         document.getElementById('edit_price_semi').value = data.price_semi_wholesale || '';
         document.getElementById('edit_price_retail').value = data.price_retail || '';
         document.getElementById('edit_price_purchase').value = data.price_purchase || '';
-        var catSelect = document.getElementById('edit_categories');
-        if (catSelect) {
+        var catDiv = document.getElementById('edit_categories');
+        if (catDiv) {
             var ids = data.category_ids || [];
-            for (var i = 0; i < catSelect.options.length; i++) {
-                catSelect.options[i].selected = ids.indexOf(parseInt(catSelect.options[i].value)) !== -1;
+            var checks = catDiv.querySelectorAll('input[type="checkbox"]');
+            for (var i = 0; i < checks.length; i++) {
+                checks[i].checked = ids.indexOf(parseInt(checks[i].value)) !== -1;
             }
         }
         var modal = new bootstrap.Modal(document.getElementById('editProductModal'));

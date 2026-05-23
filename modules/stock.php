@@ -825,11 +825,14 @@ if ($action === 'corrections') {
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Категорії</label>
-                        <select name="category_ids[]" id="edit_categories" class="form-select" multiple size="5">
+                        <div id="edit_categories" class="d-flex flex-wrap gap-2" style="max-height:160px;overflow-y:auto;">
                             <?php $allCats = getCategories($pdo); foreach ($allCats as $cat): ?>
-                            <option value="<?php echo (int)$cat['category_id']; ?>"><?php echo escape($cat['name']); ?></option>
+                            <label class="form-check form-check-inline mb-1">
+                                <input type="checkbox" name="category_ids[]" value="<?php echo (int)$cat['category_id']; ?>" class="form-check-input">
+                                <span class="form-check-label small"><?php echo escape($cat['name']); ?></span>
+                            </label>
                             <?php endforeach; ?>
-                        </select>
+                        </div>
                     </div>
                     <div class="row">
                         <div class="col-md-4 mb-3">
@@ -865,13 +868,6 @@ if ($action === 'corrections') {
 
 $where = '';
 $params = [];
-$having = '';
-$joinCategory = '';
-
-if ($categoryId) {
-    $joinCategory = "INNER JOIN erp_product_categories pc ON p.product_id = pc.product_id AND pc.category_id = ?";
-}
-
 if ($search) {
     $where = "WHERE (p.name LIKE ? OR p.model LIKE ? OR p.sku LIKE ? OR CAST(p.product_id AS CHAR) LIKE ?)";
     $s = "%$search%";
@@ -1076,11 +1072,14 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Категорії</label>
-                        <select name="category_ids[]" id="edit_categories" class="form-select" multiple size="5">
+                        <div id="edit_categories" class="d-flex flex-wrap gap-2" style="max-height:160px;overflow-y:auto;">
                             <?php $allCats = getCategories($pdo); foreach ($allCats as $cat): ?>
-                            <option value="<?php echo (int)$cat['category_id']; ?>"><?php echo escape($cat['name']); ?></option>
+                            <label class="form-check form-check-inline mb-1">
+                                <input type="checkbox" name="category_ids[]" value="<?php echo (int)$cat['category_id']; ?>" class="form-check-input">
+                                <span class="form-check-label small"><?php echo escape($cat['name']); ?></span>
+                            </label>
                             <?php endforeach; ?>
-                        </select>
+                        </div>
                     </div>
                     <div class="row">
                         <div class="col-md-4 mb-3">

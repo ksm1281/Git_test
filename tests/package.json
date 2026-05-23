@@ -1,0 +1,12 @@
+{
+  "name": "erp-crm-tests",
+  "private": true,
+  "scripts": {
+    "test:frontend": "npx playwright test --config=playwright.config.js",
+    "test:frontend:headed": "npx playwright test --config=playwright.config.js --headed",
+    "test:backend": "php backend/api-test.php"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}

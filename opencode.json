@@ -27,7 +27,8 @@
       "command": [
         "npx",
         "-y",
-        "@arabold/docs-mcp-server"
+        "@arabold/docs-mcp-server",
+        "mcp"
       ]
     },
     "playwright": {
@@ -46,7 +47,10 @@
       "command": [
         "npx",
         "@testsprite/testsprite-mcp@latest"
-      ]
+      ],
+      "env": {
+        "API_KEY": "${TESTSPRITE_API_KEY}"
+      }
     },
     "context7": {
       "type": "local",
@@ -56,7 +60,10 @@
         "npx",
         "-y",
         "@upstash/context7-mcp"
-      ]
+      ],
+      "env": {
+        "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
+      }
     }
   }
 }

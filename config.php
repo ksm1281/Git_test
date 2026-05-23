@@ -801,7 +801,7 @@ function getProductCategoryIds($pdo, $productId) {
 if (!function_exists('getCategoryFilter')) {
 function getCategoryFilter($pdo, $selectedCategoryId = 0) {
     $categories = getCategories($pdo);
-    $html = '<select name="category_id" class="form-select form-select-sm" style="max-width:200px;" onchange="this.form.submit()">';
+    $html = '<select name="category_id" class="form-select form-select-sm category-filter" style="max-width:200px;" data-selected="' . (int)$selectedCategoryId . '">';
     $html .= '<option value="">Всі категорії</option>';
     foreach ($categories as $c) {
         $sel = (int)$selectedCategoryId === (int)$c['category_id'] ? ' selected' : '';
