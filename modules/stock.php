@@ -1195,6 +1195,12 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+var adjustProducts = <?php
+$allP = $pdo->query("SELECT product_id, name, model, sku FROM erp_products ORDER BY name ASC")->fetchAll();
+echo json_encode(array_map(function($ap) {
+    return ['id' => (int)$ap['product_id'], 'name' => $ap['name'] ?: 'ID ' . $ap['product_id'], 'model' => $ap['model'] ?? '', 'sku' => $ap['sku'] ?? ''];
+}, $allP), JSON_UNESCAPED_UNICODE);
+?>;
 function openAdjust(productId) {
     var p = adjustProducts.find(function(p) { return p.id === productId; });
     if (!p) return;
@@ -1208,14 +1214,6 @@ function openAdjust(productId) {
         modal.show();
     }
 }
-
-var adjustProducts = <?php
-$allP = $pdo->query("SELECT product_id, name, model, sku FROM erp_products ORDER BY name ASC")->fetchAll();
-echo json_encode(array_map(function($ap) {
-    return ['id' => (int)$ap['product_id'], 'name' => $ap['name'] ?: 'ID ' . $ap['product_id'], 'model' => $ap['model'] ?? '', 'sku' => $ap['sku'] ?? ''];
-}, $allP), JSON_UNESCAPED_UNICODE);
-?>;
-
 (function() {
     var input = document.getElementById('adjustProductSearch');
     var hidden = document.getElementById('adjustProductId');
