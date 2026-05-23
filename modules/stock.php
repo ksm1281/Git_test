@@ -523,7 +523,7 @@ if ($action === 'pricing') {
                                 <span class="badge bg-warning text-dark">Немає в наявності</span>
                                 <?php endif; ?>
                             </td>
-                            <td><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $pCats ? escape(implode(', ', $pCats)) : '-'; ?></span></td>
+                            <td><span class="cat-label"><?php echo $pCats ? escape(implode(', ', $pCats)) : '-'; ?></span></td>
                             <td class="text-center fw-bold"><?php echo (int)$stockQty; ?></td>
                             <td class="text-center"><?php echo $purchaseCur; ?></td>
                             <td class="text-end"><?php echo $costForeign > 0 ? formatMoneyForeign($costForeign, $purchaseCur) : '-'; ?></td>
@@ -655,7 +655,7 @@ if ($action === 'pricing') {
     .table.table-product > :not(caption) > * > th,
     .table.table-product > :not(caption) > * > td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0.4rem 0.5rem; }
     .table.table-product > :not(caption) > * > .col-actions { overflow: visible; }
-    .table.table-product .badge { max-width: 100%; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; display: inline-block; vertical-align: middle; }
+    .table.table-product .cat-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; background: rgba(108,117,125,.15); color: #212529; border-radius: .375rem; padding: 0 0.5em; font-size: .85em; line-height: 1.6; }
     .table.table-product td.name-cell { overflow: hidden; text-overflow: ellipsis; }
     .table.table-product td.name-cell a { overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: inline-block; vertical-align: middle; }
     </style>
@@ -1031,7 +1031,7 @@ include __DIR__ . '/../includes/header.php';
                         </td>
                         <td><?php echo escape($p['model'] ?: '-'); ?></td>
                         <td><?php echo escape($p['sku'] ?: '-'); ?></td>
-                        <td><span class="badge bg-secondary bg-opacity-25 text-dark"><?php echo $cats ? escape(implode(', ', $cats)) : '-'; ?></span></td>
+                        <td><span class="cat-label"><?php echo $cats ? escape(implode(', ', $cats)) : '-'; ?></span></td>
                         <td class="text-center fw-bold"><?php echo (int)$stockQty; ?></td>
                         <td class="text-end"><?php echo $p['price_wholesale'] ? formatMoney($p['price_wholesale']) : '-'; ?></td>
                         <td class="text-end"><?php echo $p['price_semi_wholesale'] ? formatMoney($p['price_semi_wholesale']) : '-'; ?></td>
