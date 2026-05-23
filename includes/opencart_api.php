@@ -568,6 +568,65 @@ class OpenCartDbClient {
         return $stmt->rowCount();
     }
 
+    private function getLanguageId() {
+        $prefix = OC_DB_PREFIX;
+        $stmt = $this->pdo->query("
+            SELECT COALESCE(
+                (SELECT language_id FROM {$prefix}language WHERE code = 'uk' LIMIT 1),
+                (SELECT language_id FROM {$prefix}language WHERE code = 'uk-ua' LIMIT 1),
+                (SELECT language_id FROM {$prefix}language WHERE code = 'ru' LIMIT 1),
+                (SELECT language_id FROM {$prefix}language WHERE code = 'en' LIMIT 1),
+                (SELECT MIN(language_id) FROM {$prefix}language LIMIT 1)
+            ) as lid
+        ");
+        return (int)$stmt->fetchColumn();
+    }
+
+    public function syncCategories($pdo) {
+        $prefix = OC_DB_PREFIX;
+        $langId = $this->getLanguageId();
+
+        $rows = $this->pdo->query("
+            SELECT c.category_id, c.parent_id, c.sort_order, cd.name
+            FROM {$prefix}category c
+            LEFT JOIN {$prefix}category_description cd ON c.category_id = cd.category_id AND cd.language_id = $langId
+            WHERE c.status = 1
+            ORDER BY c.sort_order ASC, cd.name ASC
+        ")->fetchAll();
+
+        $synced = 0;
+        $upsert = $pdo->prepare("
+            INSERT INTO erp_categories (category_id, name, parent_id, sort_order)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                name = VALUES(name),
+                parent_id = VALUES(parent_id),
+                sort_order = VALUES(sort_order)
+        ");
+
+        foreach ($rows as $r) {
+            $upsert->execute([
+                (int)$r['category_id'],
+                $r['name'] ?? 'Category #' . $r['category_id'],
+                (int)$r['parent_id'],
+                (int)$r['sort_order'],
+            ]);
+            $synced++;
+        }
+
+        $linkStmt = $pdo->prepare("INSERT IGNORE INTO erp_product_categories (product_id, category_id) VALUES (?, ?)");
+        $linkRows = $this->pdo->query("SELECT product_id, category_id FROM {$prefix}product_to_category")->fetchAll();
+        foreach ($linkRows as $r) {
+            $linkStmt->execute([(int)$r['product_id'], (int)$r['category_id']]);
+        }
+
+        $msg = "Синхронізовано $synced категорій";
+        $stmt = $pdo->prepare("INSERT INTO erp_sync_log (type, status, records_synced, message) VALUES ('categories', 'success', ?, ?)");
+        $stmt->execute([$synced, $msg]);
+
+        return ['synced' => $synced, 'message' => $msg];
+    }
+
     public function pushPrices($pdo, $products) {
         $prefix = OC_DB_PREFIX;
         $updated = 0;

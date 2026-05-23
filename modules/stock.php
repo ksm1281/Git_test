@@ -239,6 +239,7 @@ if ($action === 'categories') {
         <div>
             <a href="<?php echo BASE_URL; ?>/modules/stock.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> На склад</a>
             <?php if (isAdmin()): ?>
+            <button class="btn btn-sm btn-outline-info" id="syncCatsBtn" onclick="syncCategories()"><i class="bi bi-arrow-repeat"></i> Синхр. OC</button>
             <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#categoryModal" onclick="openCategoryModal(0, '', 0)"><i class="bi bi-plus-lg"></i> Нова категорія</button>
             <?php endif; ?>
         </div>
@@ -324,6 +325,29 @@ if ($action === 'categories') {
         document.getElementById('catSort').value = sort;
         document.getElementById('categoryModalTitle').textContent = id ? 'Редагувати категорію' : 'Нова категорія';
         new bootstrap.Modal(document.getElementById('categoryModal')).show();
+    }
+
+    function syncCategories() {
+        var btn = document.getElementById('syncCatsBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Синхр...';
+        fetch('<?php echo BASE_URL; ?>/api/sync-categories.php')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error) {
+                    alert('Помилка: ' + d.error);
+                } else {
+                    alert('OK! Синхронізовано ' + d.synced + ' категорій');
+                    location.reload();
+                }
+            })
+            .catch(function(e) {
+                alert('Помилка: ' + e.message);
+            })
+            .finally(function() {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Синхр. OC';
+            });
     }
     </script>
     <?php include __DIR__ . '/../includes/footer.php'; ?>
