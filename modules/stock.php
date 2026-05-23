@@ -415,7 +415,7 @@ if ($action === 'pricing') {
             <a href="<?php echo BASE_URL; ?>/modules/stock.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-boxes"></i> На склад</a>
             <?php if (isAdmin()): ?>
             <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#defaultsModal"><i class="bi bi-gear"></i> Налаштування</button>
-            <button class="btn btn-sm btn-success" id="pushPricesBtn" onclick="pushPrices()"><i class="bi bi-send"></i> Застосувати курси → Сайт</button>
+            <button class="btn btn-sm btn-success" id="pushPricesBtn" onclick="pushPrices()" title="Розрахувати ціни для всіх товарів і відправити на сайт"><i class="bi bi-send"></i> Застосувати курси → Сайт</button>
             <?php endif; ?>
         </div>
     </div>
@@ -469,19 +469,20 @@ if ($action === 'pricing') {
         <div class="card-body p-0">
             <?php if (count($pricingProducts) > 0): ?>
             <div class="table-container">
-                <table class="table table-hover mb-0">
+                <table class="table table-hover mb-0 table-fixed">
                     <thead>
                         <tr>
-                            <th>Товар</th>
-                            <th>Категорія</th>
-                            <th class="text-center">Залишок</th>
-                            <th class="text-center">Валюта</th>
-                            <th class="text-end">Собівартість</th>
-                            <th class="text-end">Собівартість (UAH)</th>
-                            <th class="text-end">Опт</th>
-                            <th class="text-end">Дріб. опт</th>
-                            <th class="text-end">Роздріб</th>
-                            <th class="text-center">Дії</th>
+                            <th style="width:36px;"><input type="checkbox" id="selectAllPricing" onchange="toggleAllPricing(this.checked)"></th>
+                            <th style="min-width:160px;">Товар</th>
+                            <th style="width:100px;">Категорія</th>
+                            <th style="width:70px;" class="text-center">Залишок</th>
+                            <th style="width:60px;" class="text-center">Валюта</th>
+                            <th style="width:100px;" class="text-end">Собівартість</th>
+                            <th style="width:105px;" class="text-end">Собівартість (UAH)</th>
+                            <th style="width:85px;" class="text-end">Опт</th>
+                            <th style="width:85px;" class="text-end">Дріб. опт</th>
+                            <th style="width:85px;" class="text-end">Роздріб</th>
+                            <th style="width:70px;" class="text-center">Дії</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -502,7 +503,8 @@ if ($action === 'pricing') {
                             $noStock = $stockQty <= 0;
                         ?>
                         <tr class="<?php echo $noStock ? 'table-warning' : ''; ?>">
-                            <td class="text-truncate" style="max-width:140px;">
+                            <td><input type="checkbox" class="pricing-checkbox" value="<?php echo (int)$p['product_id']; ?>"></td>
+                            <td>
                                 <?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?>
                                 <?php if ($noStock): ?>
                                 <span class="badge bg-warning text-dark">Немає в наявності</span>
@@ -635,12 +637,37 @@ if ($action === 'pricing') {
     </div>
     <?php endif; ?>
 
+    <style>
+    .table-fixed { table-layout: fixed; }
+    .col-id { width:50px; }
+    .col-name { min-width:140px; }
+    .col-model { width:100px; }
+    .col-sku { width:90px; }
+    .col-cat { width:110px; }
+    .col-qty { width:75px; }
+    .col-price { width:80px; }
+    .col-cost { width:100px; }
+    .col-actions { width:85px; }
+    </style>
     <script>
+    function toggleAllPricing(checked) {
+        document.querySelectorAll('.pricing-checkbox').forEach(function(cb) {
+            cb.checked = checked;
+        });
+    }
     function pushPrices() {
         var btn = document.getElementById('pushPricesBtn');
+        var checked = document.querySelectorAll('.pricing-checkbox:checked');
+        var url = '<?php echo BASE_URL; ?>/api/push-prices.php';
+        var options = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+        if (checked.length > 0) {
+            var ids = Array.from(checked).map(function(cb) { return parseInt(cb.value); });
+            options.body = JSON.stringify({ product_ids: ids });
+            url += '?selected=1';
+        }
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>...';
-        fetch('<?php echo BASE_URL; ?>/api/push-prices.php')
+        fetch(url, options)
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 btn.disabled = false;
@@ -952,22 +979,22 @@ include __DIR__ . '/../includes/header.php';
     <div class="card-body p-0">
         <?php if (count($products) > 0): ?>
         <div class="table-container">
-            <table class="table table-hover mb-0">
+            <table class="table table-hover mb-0 table-fixed">
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th>Назва</th>
-                        <th>Модель</th>
-                        <th>SKU</th>
-                        <th>Категорія</th>
-                        <th class="text-center">На складі</th>
-                        <th class="text-end">Опт</th>
-                        <th class="text-end">Дрібний опт</th>
-                        <th class="text-end">Роздріб</th>
-                        <th class="text-end">Закупівля</th>
-                        <th class="text-center">Дії</th>
-                    </tr>
-                </thead>
+                        <th style="width:50px;">ID</th>
+                            <th style="min-width:140px;">Назва</th>
+                            <th style="width:100px;">Модель</th>
+                            <th style="width:90px;">SKU</th>
+                            <th style="width:110px;">Категорія</th>
+                            <th style="width:75px;" class="text-center">На складі</th>
+                            <th style="width:80px;" class="text-end">Опт</th>
+                            <th style="width:80px;" class="text-end">Дрібний опт</th>
+                            <th style="width:80px;" class="text-end">Роздріб</th>
+                            <th style="width:85px;" class="text-end">Закупівля</th>
+                            <th style="width:85px;" class="text-center">Дії</th>
+                        </tr>
+                    </thead>
                 <tbody>
                     <?php foreach ($products as $p): ?>
                     <?php $stockQty = (float)$p['stock_qty']; ?>

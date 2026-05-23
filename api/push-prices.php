@@ -15,13 +15,20 @@ try {
     $rates = getCurrentRates($pdo);
     $markups = getDefaultMarkups($pdo);
 
+    $input = json_decode(file_get_contents('php://input'), true);
+    $selectedIds = isset($input['product_ids']) ? array_map('intval', (array)$input['product_ids']) : [];
+
+    $having = $selectedIds ? '' : 'HAVING avg_cost > 0';
+    $whereIds = $selectedIds ? 'WHERE p.product_id IN (' . implode(',', $selectedIds) . ')' : '';
+
     $sql = "SELECT p.product_id, p.name,
         COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
         COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'EUR') as purchase_currency
         FROM erp_products p
         LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id
+        $whereIds
         GROUP BY p.product_id
-        HAVING avg_cost > 0
+        $having
         ORDER BY p.name ASC";
     $products = $pdo->query($sql)->fetchAll();
 
