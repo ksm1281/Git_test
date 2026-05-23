@@ -656,6 +656,7 @@ if ($action === 'pricing') {
     .table.table-product > :not(caption) > * > td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0.4rem 0.5rem; }
     .table.table-product > :not(caption) > * > .col-actions { overflow: visible; }
     .table.table-product .badge { max-width: 100%; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; display: inline-block; vertical-align: middle; }
+    .table.table-product td a { overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: inline-block; vertical-align: middle; }
     </style>
     <script>
     function toggleAllPricing(checked) {
