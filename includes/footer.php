@@ -146,15 +146,31 @@
         var saved = {};
         try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch(e) {}
 
+        function lockAllCols(table) {
+            var heads = table.querySelectorAll('th');
+            heads.forEach(function(th) {
+                if (!th.style.width) {
+                    th.style.width = th.offsetWidth + 'px';
+                }
+            });
+            table.style.tableLayout = 'fixed';
+        }
+
         document.querySelectorAll('table.table-product').forEach(function(table) {
             var id = table.id || 'tbl_' + Math.random().toString(36).slice(2, 6);
             if (!table.id) table.id = id;
 
+            var savedCols = saved[id];
+            if (savedCols) {
+                table.style.tableLayout = 'fixed';
+                var heads = table.querySelectorAll('th');
+                heads.forEach(function(th, i) {
+                    if (savedCols[i]) th.style.width = savedCols[i] + 'px';
+                });
+            }
+
             var heads = table.querySelectorAll('th');
             heads.forEach(function(th, i) {
-                var savedW = saved[id + '_' + i];
-                if (savedW) th.style.width = savedW + 'px';
-
                 var handle = document.createElement('div');
                 handle.style.cssText = 'position:absolute;right:0;top:0;bottom:0;width:5px;cursor:col-resize;z-index:1;';
                 th.style.position = 'relative';
@@ -163,6 +179,7 @@
                 var startX, startW;
                 handle.addEventListener('mousedown', function(e) {
                     e.preventDefault();
+                    lockAllCols(table);
                     startX = e.clientX;
                     startW = th.offsetWidth;
                     document.body.style.cursor = 'col-resize';
@@ -172,14 +189,15 @@
                         var diff = ev.clientX - startX;
                         var newW = Math.max(30, startW + diff);
                         th.style.width = newW + 'px';
-                        th.style.minWidth = newW + 'px';
-                        th.style.maxWidth = newW + 'px';
                     };
                     var onUp = function() {
                         document.body.style.cursor = '';
                         document.body.style.userSelect = '';
-                        var w = th.offsetWidth;
-                        saved[id + '_' + i] = w;
+                        var widths = {};
+                        table.querySelectorAll('th').forEach(function(h, idx) {
+                            widths[idx] = h.offsetWidth;
+                        });
+                        saved[id] = widths;
                         try { localStorage.setItem(storageKey, JSON.stringify(saved)); } catch(e) {}
                         document.removeEventListener('mousemove', onMove);
                         document.removeEventListener('mouseup', onUp);
