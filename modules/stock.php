@@ -144,16 +144,6 @@ if ($action === 'edit_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare("UPDATE erp_products SET name = ?, model = ?, sku = ?, price_wholesale = ?, price_semi_wholesale = ?, price_retail = ?, price_purchase = ? WHERE product_id = ?");
         $stmt->execute([$name, $model, $sku, $priceWholesale, $priceSemi, $priceRetail, $pricePurchase, $pid]);
         $pdo->prepare("DELETE FROM erp_product_categories WHERE product_id = ?")->execute([$pid]);
-
-        $currentQty = (float)($_POST['current_quantity'] ?? 0);
-        $newQty = (float)($_POST['new_quantity'] ?? 0);
-        $diff = $newQty - $currentQty;
-        if ($diff != 0) {
-            $user = getUserData();
-            $notes = 'Змінено при редагуванні товару (було ' . $currentQty . ', стало ' . $newQty . ')';
-            $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, notes, user_id) VALUES (?, 'adjustment', ?, ?, ?)");
-            $stmt->execute([$pid, $diff, $notes, $user['user_id']]);
-        }
         $insertStmt = $pdo->prepare("INSERT INTO erp_product_categories (product_id, category_id) VALUES (?, ?)");
         foreach ($catIds as $cid) {
             if ($cid > 0) $insertStmt->execute([$pid, $cid]);
@@ -1048,8 +1038,11 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-end"><?php echo $p['price_retail'] ? formatMoney($p['price_retail']) : '-'; ?></td>
                         <td class="text-end"><?php echo $p['price_purchase'] ? formatMoney($p['price_purchase']) : '-'; ?></td>
                         <td class="text-center col-actions">
-                            <button class="btn btn-sm btn-outline-primary" onclick='editProduct(<?php echo json_encode(array_merge($p, ['category_ids' => $productCategoryIds[$p['product_id']] ?? [], 'stock_qty' => $stockQty]), JSON_UNESCAPED_UNICODE); ?>)' title="Редагувати товар">
+                            <button class="btn btn-sm btn-outline-primary" onclick='editProduct(<?php echo json_encode(array_merge($p, ['category_ids' => $productCategoryIds[$p['product_id']] ?? []]), JSON_UNESCAPED_UNICODE); ?>)' title="Редагувати товар">
                                 <i class="bi bi-pencil"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-success" onclick="openAdjust(<?php echo (int)$p['product_id']; ?>)" title="Корекція залишку">
+                                <i class="bi bi-box-seam"></i>
                             </button>
                             <a href="<?php echo BASE_URL; ?>/modules/stock.php?action=moves&id=<?php echo (int)$p['product_id']; ?>" class="btn btn-sm btn-outline-info" title="Рух товару">
                                 <i class="bi bi-arrow-left-right"></i>
@@ -1123,8 +1116,6 @@ include __DIR__ . '/../includes/header.php';
                 </div>
                 <div class="modal-body">
                     <input type="hidden" name="product_id" id="edit_product_id">
-                    <input type="hidden" name="new_quantity" id="edit_new_quantity" value="0">
-                    <input type="hidden" name="current_quantity" id="edit_current_quantity" value="0">
                     <div class="mb-3">
                         <label class="form-label required">Назва</label>
                         <input type="text" name="name" id="edit_name" class="form-control" required>
@@ -1136,16 +1127,6 @@ include __DIR__ . '/../includes/header.php';
                     <div class="mb-3">
                         <label class="form-label">SKU</label>
                         <input type="text" name="sku" id="edit_sku" class="form-control">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Кількість на складі</label>
-                        <div class="input-group">
-                            <input type="number" id="edit_quantity_display" class="form-control" readonly>
-                            <button class="btn btn-outline-secondary" type="button" onclick="adjustQty(-1)" title="-1"><i class="bi bi-dash-lg"></i></button>
-                            <button class="btn btn-outline-secondary" type="button" onclick="adjustQty(1)" title="+1">+1</button>
-                            <button class="btn btn-outline-secondary" type="button" onclick="adjustQty(10)" title="+10">+10</button>
-                            <span class="input-group-text bg-light" id="edit_quantity_note"></span>
-                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Категорії</label>
