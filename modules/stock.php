@@ -472,7 +472,7 @@ if ($action === 'pricing') {
                 <table id="pricing-table" class="table table-hover mb-0 table-product">
                     <colgroup>
                         <col style="width:36px">
-                        <col style="width:auto">
+                        <col>
                         <col style="width:110px">
                         <col style="width:70px">
                         <col style="width:60px">
@@ -485,17 +485,17 @@ if ($action === 'pricing') {
                     </colgroup>
                     <thead>
                         <tr>
-                            <th><input type="checkbox" id="selectAllPricing" onchange="toggleAllPricing(this.checked)"></th>
+                            <th style="width:36px"><input type="checkbox" id="selectAllPricing" onchange="toggleAllPricing(this.checked)"></th>
                             <th>Товар</th>
-                            <th>Категорія</th>
-                            <th class="text-center">Залишок</th>
-                            <th class="text-center">Валюта</th>
-                            <th class="text-end">Собівартість</th>
-                            <th class="text-end">Собівартість (UAH)</th>
-                            <th class="text-end">Опт</th>
-                            <th class="text-end">Дріб. опт</th>
-                            <th class="text-end">Роздріб</th>
-                            <th class="text-center">Дії</th>
+                            <th style="width:110px">Категорія</th>
+                            <th style="width:70px" class="text-center">Залишок</th>
+                            <th style="width:60px" class="text-center">Валюта</th>
+                            <th style="width:100px" class="text-end">Собівартість</th>
+                            <th style="width:105px" class="text-end">Собівартість (UAH)</th>
+                            <th style="width:85px" class="text-end">Опт</th>
+                            <th style="width:85px" class="text-end">Дріб. опт</th>
+                            <th style="width:85px" class="text-end">Роздріб</th>
+                            <th style="width:70px" class="text-center">Дії</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -651,12 +651,13 @@ if ($action === 'pricing') {
     <?php endif; ?>
 
     <style>
-    .table-product { table-layout: fixed; }
+    .table-product { table-layout: auto; }
     .table.table-product > :not(caption) > * > th,
     .table.table-product > :not(caption) > * > td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0.4rem 0.5rem; }
     .table.table-product > :not(caption) > * > .col-actions { overflow: visible; }
     .table.table-product .badge { max-width: 100%; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; display: inline-block; vertical-align: middle; }
-    .table.table-product td a { overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: inline-block; vertical-align: middle; }
+    .table.table-product td.name-cell a,
+    .table.table-product td.name-cell { overflow: hidden; text-overflow: ellipsis; }
     </style>
     <script>
     function toggleAllPricing(checked) {
@@ -991,7 +992,7 @@ include __DIR__ . '/../includes/header.php';
             <table id="products-table" class="table table-hover mb-0 table-product">
                 <colgroup>
                     <col style="width:50px">
-                    <col style="width:auto">
+                    <col>
                     <col style="width:100px">
                     <col style="width:90px">
                     <col style="width:110px">
@@ -1004,17 +1005,17 @@ include __DIR__ . '/../includes/header.php';
                 </colgroup>
                 <thead>
                     <tr>
-                        <th>ID</th>
+                        <th style="width:50px">ID</th>
                         <th>Назва</th>
-                        <th>Модель</th>
-                        <th>SKU</th>
-                        <th>Категорія</th>
-                        <th class="text-center">На складі</th>
-                        <th class="text-end">Опт</th>
-                        <th class="text-end">Дрібний опт</th>
-                        <th class="text-end">Роздріб</th>
-                        <th class="text-end">Закупівля</th>
-                        <th class="text-center">Дії</th>
+                        <th style="width:100px">Модель</th>
+                        <th style="width:90px">SKU</th>
+                        <th style="width:110px">Категорія</th>
+                        <th style="width:75px" class="text-center">На складі</th>
+                        <th style="width:80px" class="text-end">Опт</th>
+                        <th style="width:80px" class="text-end">Дрібний опт</th>
+                        <th style="width:80px" class="text-end">Роздріб</th>
+                        <th style="width:85px" class="text-end">Закупівля</th>
+                        <th style="width:85px" class="text-center">Дії</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1023,7 +1024,7 @@ include __DIR__ . '/../includes/header.php';
                     <?php $cats = $productCategories[$p['product_id']] ?? []; ?>
                     <tr class="<?php echo $stockQty <= 0 ? 'table-danger' : ($stockQty <= 5 ? 'table-warning' : ''); ?>">
                         <td><?php echo (int)$p['product_id']; ?></td>
-                        <td class="text-truncate" style="max-width:180px;">
+                        <td class="name-cell">
                             <a href="<?php echo BASE_URL; ?>/modules/stock.php?action=moves&id=<?php echo (int)$p['product_id']; ?>" class="text-decoration-none">
                                 <?php echo escape($p['name'] ?: '—'); ?>
                             </a>
