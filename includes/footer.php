@@ -119,6 +119,11 @@
         document.getElementById('edit_price_semi').value = data.price_semi_wholesale || '';
         document.getElementById('edit_price_retail').value = data.price_retail || '';
         document.getElementById('edit_price_purchase').value = data.price_purchase || '';
+        var qty = parseFloat(data.stock_qty) || 0;
+        document.getElementById('edit_quantity_display').value = qty;
+        document.getElementById('edit_current_quantity').value = qty;
+        document.getElementById('edit_new_quantity').value = qty;
+        updateQtyNote();
         var catDiv = document.getElementById('edit_categories');
         if (catDiv) {
             var ids = data.category_ids || [];
@@ -129,6 +134,26 @@
         }
         var modal = new bootstrap.Modal(document.getElementById('editProductModal'));
         modal.show();
+    }
+
+    function adjustQty(delta) {
+        var display = document.getElementById('edit_quantity_display');
+        var hidden = document.getElementById('edit_new_quantity');
+        var current = parseFloat(display.value) || 0;
+        var newVal = Math.max(0, current + delta);
+        display.value = newVal;
+        hidden.value = newVal;
+        updateQtyNote();
+    }
+
+    function updateQtyNote() {
+        var display = document.getElementById('edit_quantity_display');
+        var current = document.getElementById('edit_current_quantity');
+        var note = document.getElementById('edit_quantity_note');
+        var diff = (parseFloat(display.value) || 0) - (parseFloat(current.value) || 0);
+        if (diff > 0) note.textContent = '+' + diff;
+        else if (diff < 0) note.textContent = diff;
+        else note.textContent = '';
     }
 
     function editCorrection(data) {
