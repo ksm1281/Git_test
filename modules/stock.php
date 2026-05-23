@@ -518,7 +518,7 @@ if ($action === 'pricing') {
                             <td class="text-end fw-bold"><?php echo formatMoney($pw); ?></td>
                             <td class="text-end fw-bold"><?php echo formatMoney($ps); ?></td>
                             <td class="text-end fw-bold"><?php echo formatMoney($pr); ?></td>
-                            <td class="text-center">
+                            <td class="text-center col-actions">
                                 <button class="btn btn-sm btn-outline-primary edit-pricing"
                                     data-product-id="<?php echo $p['product_id']; ?>"
                                     data-name="<?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?>"
@@ -638,8 +638,9 @@ if ($action === 'pricing') {
     <?php endif; ?>
 
     <style>
-    .table-product th, .table-product td { white-space: nowrap; padding: 0.4rem 0.5rem; }
-    .table-product .cell-text { white-space: normal; overflow: hidden; text-overflow: ellipsis; }
+    .table-product { table-layout: auto; }
+    .table-product th, .table-product td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0.4rem 0.5rem; }
+    .table-product .col-actions { overflow: visible; }
     </style>
     <script>
     function toggleAllPricing(checked) {
@@ -1006,7 +1007,7 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-end"><?php echo $p['price_semi_wholesale'] ? formatMoney($p['price_semi_wholesale']) : '-'; ?></td>
                         <td class="text-end"><?php echo $p['price_retail'] ? formatMoney($p['price_retail']) : '-'; ?></td>
                         <td class="text-end"><?php echo $p['price_purchase'] ? formatMoney($p['price_purchase']) : '-'; ?></td>
-                        <td class="text-center">
+                        <td class="text-center col-actions">
                             <button class="btn btn-sm btn-outline-primary" onclick='editProduct(<?php echo json_encode(array_merge($p, ['category_ids' => $productCategoryIds[$p['product_id']] ?? []]), JSON_UNESCAPED_UNICODE); ?>)' title="Редагувати товар">
                                 <i class="bi bi-pencil"></i>
                             </button>
