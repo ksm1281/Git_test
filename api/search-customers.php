@@ -9,6 +9,8 @@ if (!isLoggedIn()) {
     exit;
 }
 
+logActivity($pdo, 'info', 'Пошук клієнтів: ' . ($_GET['q'] ?? ''), 'search-customers');
+
 $q = trim($_GET['q'] ?? '');
 if (strlen($q) < 1) {
     echo json_encode([]);
@@ -30,5 +32,6 @@ try {
     $stmt->execute([$s, $s, $s, $s]);
     echo json_encode($stmt->fetchAll(), JSON_UNESCAPED_UNICODE);
 } catch (Exception $e) {
+    logActivity($pdo, 'error', 'Помилка пошуку клієнтів: ' . $e->getMessage(), 'search-customers', null, null);
     echo json_encode(['error' => $e->getMessage()]);
 }
