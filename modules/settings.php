@@ -43,6 +43,21 @@ if ($tab === 'general' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect(BASE_URL . '/modules/settings.php?tab=general');
 }
 
+// --- Save Notifications Settings ---
+if ($tab === 'notifications' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $settings = [
+        'tg_bot_token' => trim($_POST['tg_bot_token'] ?? ''),
+        'tg_chat_id' => trim($_POST['tg_chat_id'] ?? ''),
+        'notify_on_new_order' => $_POST['notify_on_new_order'] ?? '0',
+    ];
+    foreach ($settings as $key => $value) {
+        $stmt = $pdo->prepare("INSERT INTO erp_settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = ?");
+        $stmt->execute([$key, $value, $value]);
+    }
+    flashMessage('success', 'Налаштування сповіщень збережено');
+    redirect(BASE_URL . '/modules/settings.php?tab=notifications');
+}
+
 // --- Save Cash Account ---
 if ($tab === 'cash' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_account'])) {
     $accountId = (int)($_POST['account_id'] ?? 0);
@@ -173,6 +188,20 @@ if ($tab === 'users') {
     }
 }
 
+// --- Test Telegram ---
+if ($tab === 'notifications' && isset($_GET['test_telegram'])) {
+    $testMessage = "<b>Тестове сповіщення</b>\n"
+        . "🕒 " . date('d.m.Y H:i') . "\n\n"
+        . "Якщо ви бачите це повідомлення — Telegram-бот налаштовано правильно!";
+    $sent = sendTelegramNotification($pdo, $testMessage);
+    if ($sent) {
+        flashMessage('success', 'Тестове повідомлення надіслано! Перевірте Telegram.');
+    } else {
+        flashMessage('error', 'Помилка надсилання. Перевірте токен та Chat ID.');
+    }
+    redirect(BASE_URL . '/modules/settings.php?tab=notifications');
+}
+
 // --- Data for views ---
 $settings = [];
 $stmt = $pdo->query("SELECT `key`, `value` FROM erp_settings");
@@ -188,6 +217,7 @@ $users = $pdo->query("SELECT * FROM erp_users ORDER BY role ASC, username ASC")-
 
 $tabs = [
     'general' => ['label' => 'Загальні', 'icon' => 'bi-gear'],
+    'notifications' => ['label' => 'Сповіщення', 'icon' => 'bi-bell'],
     'cash' => ['label' => 'Каси', 'icon' => 'bi-wallet2'],
     'delivery' => ['label' => 'Доставки', 'icon' => 'bi-truck'],
     'payment' => ['label' => 'Оплати', 'icon' => 'bi-credit-card'],
@@ -320,6 +350,38 @@ include __DIR__ . '/../includes/header.php';
             </div>
 
             <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Зберегти</button>
+        </form>
+    </div>
+</div>
+
+<?php elseif ($tab === 'notifications'): ?>
+<div class="card">
+    <div class="card-header">Сповіщення (Telegram)</div>
+    <div class="card-body">
+        <form method="post">
+            <p class="text-muted mb-3">Налаштування Telegram-бота для сповіщень про нові замовлення.</p>
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label">Bot Token</label>
+                    <input type="text" name="tg_bot_token" class="form-control font-monospace" value="<?php echo escape($settings['tg_bot_token'] ?? ''); ?>" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+                    <div class="form-text">Отримайте у <a href="https://t.me/BotFather" target="_blank">@BotFather</a></div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Chat ID</label>
+                    <input type="text" name="tg_chat_id" class="form-control" value="<?php echo escape($settings['tg_chat_id'] ?? ''); ?>" placeholder="-1001234567890">
+                    <div class="form-text">ID чату або користувача. Дізнайтеся у <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a></div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="notify_on_new_order" id="notifyOnNewOrder" value="1" <?php echo ($settings['notify_on_new_order'] ?? '0') === '1' ? 'checked' : ''; ?>>
+                    <label class="form-check-label" for="notifyOnNewOrder">Сповіщати про нові замовлення</label>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Зберегти</button>
+            <?php if (!empty($settings['tg_bot_token'] ?? '') && !empty($settings['tg_chat_id'] ?? '')): ?>
+            <a href="?tab=notifications&test_telegram=1" class="btn btn-outline-info ms-2"><i class="bi bi-send"></i> Тест</a>
+            <?php endif; ?>
         </form>
     </div>
 </div>

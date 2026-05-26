@@ -132,6 +132,44 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $pdo->commit();
+
+        $sendNotif = $_POST['send_notification'] ?? '';
+        $isNewOrder = !((int)($_GET['id'] ?? 0));
+        if ($isNewOrder && $sendNotif === '1') {
+            $stmt = $pdo->prepare("SELECT `value` FROM erp_settings WHERE `key`='notify_on_new_order'");
+            $stmt->execute();
+            $notifyEnabled = $stmt->fetchColumn();
+
+            if ($notifyEnabled === '1') {
+                $itemsList = '';
+                for ($i = 0; $i < count($productIds); $i++) {
+                    $pid = (int)($productIds[$i] ?? 0);
+                    $qty = (float)($quantities[$i] ?? 0);
+                    $price = (float)($prices[$i] ?? 0);
+                    if ($pid <= 0 || $qty <= 0) continue;
+                    $stmt = $pdo->prepare("SELECT name FROM erp_products WHERE product_id=?");
+                    $stmt->execute([$pid]);
+                    $pname = $stmt->fetchColumn() ?: ('ID ' . $pid);
+                    $itemsList .= sprintf("\n• %s — %s × %s = %s ₴",
+                        $pname, $qty, number_format($price, 2), number_format($qty * $price, 2));
+                }
+
+                $msg = "<b>🆕 Нове замовлення #{$orderId}</b>\n"
+                    . "👤 {$customerName}\n"
+                    . "📞 {$telephone}\n"
+                    . ($email ? "📧 {$email}\n" : '')
+                    . ($deliveryMethod ? "🚚 {$deliveryMethod}\n" : '')
+                    . ($deliveryAddress ? "📍 {$deliveryAddress}\n" : '')
+                    . ($notes ? "📝 {$notes}\n" : '')
+                    . "\n<b>Товари:</b>{$itemsList}\n\n"
+                    . "<b>💰 Всього: " . number_format($total, 2) . " ₴</b>\n"
+                    . ($payAmount > 0 ? "💳 Оплата: " . number_format($payAmount, 2) . " ₴\n" : '')
+                    . "🕒 " . date('d.m.Y H:i');
+
+                sendTelegramNotification($pdo, $msg);
+            }
+        }
+
         flashMessage('success', 'Замовлення #' . $orderId . ' збережено');
         redirect(BASE_URL . '/modules/orders.php?action=view&id=' . $orderId);
     } catch (Exception $e) {
@@ -534,22 +572,31 @@ if ($action === 'create' || $action === 'edit') {
         <div class="card-body">
             <form method="post" action="?action=<?php echo $formAction; ?>" id="orderForm">
                 <div class="row g-3 mb-3">
+                    <div class="col-md-12">
+                        <label class="form-label">Пошук клієнта <small class="text-muted">(введіть ім'я, телефон або email)</small></label>
+                        <div class="position-relative">
+                            <input type="text" class="form-control" id="customerSearch" placeholder="Почніть вводити ім'я або телефон..." autocomplete="off">
+                            <div id="customerDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1050;max-height:250px;overflow-y:auto;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
                     <div class="col-md-3">
                         <label class="form-label required">Ім'я</label>
-                        <input type="text" name="firstname" class="form-control" required value="<?php echo $isEdit ? explode(' ', trim($order['customer_name']))[0] : ''; ?>">
+                        <input type="text" name="firstname" id="orderFirstname" class="form-control" required value="<?php echo $isEdit ? explode(' ', trim($order['customer_name']))[0] : ''; ?>">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Фамілія</label>
-                        <input type="text" name="lastname" class="form-control" value="<?php echo $isEdit ? (strpos(trim($order['customer_name']), ' ') !== false ? substr(trim($order['customer_name']), strpos(trim($order['customer_name']), ' ') + 1) : '') : ''; ?>">
+                        <input type="text" name="lastname" id="orderLastname" class="form-control" value="<?php echo $isEdit ? (strpos(trim($order['customer_name']), ' ') !== false ? substr(trim($order['customer_name']), strpos(trim($order['customer_name']), ' ') + 1) : '') : ''; ?>">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Телефон</label>
-                        <input type="tel" name="telephone" class="form-control" value="<?php echo $isEdit ? escape($order['telephone']) : ''; ?>" pattern="^\+?380[0-9]{9}$|^0[0-9]{9}$" title="Формат: +380XXXXXXXXX або 0XXXXXXXXX">
+                        <input type="tel" name="telephone" id="orderTelephone" class="form-control" value="<?php echo $isEdit ? escape($order['telephone']) : ''; ?>" pattern="^\+?380[0-9]{9}$|^0[0-9]{9}$" title="Формат: +380XXXXXXXXX або 0XXXXXXXXX">
                         <small class="text-muted">+380XXXXXXXXX або 0XXXXXXXXX</small>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Email</label>
-                        <input type="email" name="email" class="form-control" value="<?php echo $isEdit ? escape($order['email']) : ''; ?>">
+                        <input type="email" name="email" id="orderEmail" class="form-control" value="<?php echo $isEdit ? escape($order['email']) : ''; ?>">
                     </div>
                 </div>
                 <div class="row g-3 mb-3">
@@ -700,6 +747,17 @@ if ($action === 'create' || $action === 'edit') {
                                 <input type="date" name="pay_date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
                             </div>
                         </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <?php if (!$isEdit): ?>
+                <div class="mt-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="send_notification" id="sendNotification" value="1" checked>
+                        <label class="form-check-label" for="sendNotification">
+                            <i class="bi bi-telegram"></i> Надіслати сповіщення в Telegram
+                        </label>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -870,6 +928,66 @@ if ($action === 'create' || $action === 'edit') {
             }
         }
     });
+
+    // Customer autocomplete — AJAX
+    (function() {
+        var input = document.getElementById('customerSearch');
+        var dropdown = document.getElementById('customerDropdown');
+        if (!input || !dropdown) return;
+
+        function show() { dropdown.style.display = 'block'; }
+        function hide() { dropdown.style.display = 'none'; }
+
+        input.addEventListener('input', function() {
+            var q = this.value.trim();
+            if (q.length < 1) { hide(); return; }
+            fetch('<?php echo BASE_URL; ?>/api/search-customers.php?q=' + encodeURIComponent(q))
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
+                    return r.json();
+                })
+                .then(function(data) {
+                    if (!data || data.length === 0) { hide(); return; }
+                    if (data.error) { console.error('API error:', data.error); hide(); return; }
+                    dropdown.innerHTML = '';
+                    for (var i = 0; i < data.length; i++) {
+                        var c = data[i];
+                        var fullName = (c.firstname || '') + ' ' + (c.lastname || '');
+                        var info = [];
+                        if (c.telephone) info.push(c.telephone);
+                        if (c.email) info.push(c.email);
+                        var opt = document.createElement('button');
+                        opt.type = 'button';
+                        opt.className = 'dropdown-item';
+                        opt.dataset.customerId = c.customer_id;
+                        opt.dataset.firstname = c.firstname || '';
+                        opt.dataset.lastname = c.lastname || '';
+                        opt.dataset.telephone = c.telephone || '';
+                        opt.dataset.email = c.email || '';
+                        opt.innerHTML = (fullName.trim() || '#' + c.customer_id) + '<br><small class="text-muted">' + escapeHtml(info.join(' · ')) + '</small>';
+                        opt.addEventListener('mousedown', function(e) {
+                            e.preventDefault();
+                            document.getElementById('orderFirstname').value = this.dataset.firstname;
+                            document.getElementById('orderLastname').value = this.dataset.lastname;
+                            document.getElementById('orderTelephone').value = this.dataset.telephone;
+                            document.getElementById('orderEmail').value = this.dataset.email;
+                            input.value = ((this.dataset.firstname || '') + ' ' + (this.dataset.lastname || '')).trim();
+                            hide();
+                        });
+                        dropdown.appendChild(opt);
+                    }
+                    show();
+                })
+                .catch(function(err) {
+                    console.error('Customer search error:', err);
+                    dropdown.innerHTML = '<div class="dropdown-item text-danger">Помилка: ' + err.message + '</div>';
+                    show();
+                });
+        });
+        input.addEventListener('blur', function() {
+            setTimeout(hide, 200);
+        });
+    })();
 
     function calcTotal() {
         let total = 0;

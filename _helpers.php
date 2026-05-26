@@ -82,6 +82,34 @@ function monthName($m) {
 }
 }
 
+if (!function_exists('sendTelegramNotification')) {
+function sendTelegramNotification($pdo, $message) {
+    $stmt = $pdo->prepare("SELECT `key`, `value` FROM erp_settings WHERE `key` IN ('tg_bot_token', 'tg_chat_id')");
+    $stmt->execute();
+    $settings = [];
+    foreach ($stmt as $row) {
+        $settings[$row['key']] = $row['value'];
+    }
+    $token = $settings['tg_bot_token'] ?? '';
+    $chatId = $settings['tg_chat_id'] ?? '';
+    if (empty($token) || empty($chatId)) return false;
+
+    $data = ['chat_id' => $chatId, 'text' => $message, 'parse_mode' => 'HTML'];
+    $ch = curl_init('https://api.telegram.org/bot' . $token . '/sendMessage');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => http_build_query($data),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_SSL_VERIFYPEER => true,
+    ]);
+    $result = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return $httpCode === 200;
+}
+}
+
 if (!function_exists('num2str')) {
 function num2str($num) {
     $num = round($num, 2);
