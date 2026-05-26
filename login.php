@@ -25,10 +25,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['erp_user_id'] = $user['user_id'];
             $_SESSION['erp_username'] = $user['username'];
             $_SESSION['erp_role'] = $user['role'];
+            logActivity($pdo, 'success', 'Успішний вхід: ' . $username, 'login');
             flashMessage('success', 'Вітаємо, ' . $user['username'] . '!');
             redirect(BASE_URL . '/index.php');
         } else {
             $error = 'Невірне ім\'я користувача або пароль.';
+            logActivity($pdo, 'warning', 'Невдала спроба входу: ' . $username, 'login');
         }
     }
 }

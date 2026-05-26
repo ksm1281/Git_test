@@ -188,6 +188,13 @@ if ($tab === 'users') {
     }
 }
 
+// --- Logs: Clear ---
+if ($tab === 'logs' && isset($_GET['clear']) && isAdmin()) {
+    $pdo->exec("TRUNCATE TABLE erp_activity_log");
+    flashMessage('success', 'Логи очищено');
+    redirect(BASE_URL . '/modules/settings.php?tab=logs');
+}
+
 // --- Test Telegram ---
 if ($tab === 'notifications' && isset($_GET['test_telegram'])) {
     $testMessage = "<b>Тестове сповіщення</b>\n"
@@ -218,6 +225,7 @@ $users = $pdo->query("SELECT * FROM erp_users ORDER BY role ASC, username ASC")-
 $tabs = [
     'general' => ['label' => 'Загальні', 'icon' => 'bi-gear'],
     'notifications' => ['label' => 'Сповіщення', 'icon' => 'bi-bell'],
+    'logs' => ['label' => 'Логування', 'icon' => 'bi-journal-text'],
     'cash' => ['label' => 'Каси', 'icon' => 'bi-wallet2'],
     'delivery' => ['label' => 'Доставки', 'icon' => 'bi-truck'],
     'payment' => ['label' => 'Оплати', 'icon' => 'bi-credit-card'],
@@ -383,6 +391,98 @@ include __DIR__ . '/../includes/header.php';
             <a href="?tab=notifications&test_telegram=1" class="btn btn-outline-info ms-2"><i class="bi bi-send"></i> Тест</a>
             <?php endif; ?>
         </form>
+    </div>
+</div>
+
+<?php elseif ($tab === 'logs'): ?>
+<?php
+    $logPage = max(1, (int)($_GET['log_page'] ?? 1));
+    $logPerPage = 50;
+    $logType = $_GET['log_type'] ?? '';
+    $logWhere = '';
+    $logParams = [];
+    if ($logType) {
+        $logWhere = 'WHERE l.type = ?';
+        $logParams[] = $logType;
+    }
+    $logCount = $pdo->prepare("SELECT COUNT(*) FROM erp_activity_log l $logWhere");
+    $logCount->execute($logParams);
+    $logTotal = $logCount->fetchColumn();
+    $logPagination = paginate($logTotal, $logPerPage, $logPage);
+
+    $logSql = "SELECT l.*, u.username FROM erp_activity_log l LEFT JOIN erp_users u ON l.user_id = u.user_id $logWhere ORDER BY l.date_added DESC LIMIT {$logPagination['per_page']} OFFSET {$logPagination['offset']}";
+    $logStmt = $pdo->prepare($logSql);
+    $logStmt->execute($logParams);
+    $logs = $logStmt->fetchAll();
+
+    $logTypes = $pdo->query("SELECT DISTINCT type FROM erp_activity_log ORDER BY type")->fetchAll(PDO::FETCH_COLUMN);
+?>
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-journal-text"></i> Логування</span>
+        <div>
+            <a href="?tab=logs&clear=1" class="btn btn-outline-danger btn-sm" onclick="return confirm('Очистити всі логи?')"><i class="bi bi-trash"></i> Очистити</a>
+        </div>
+    </div>
+    <div class="card-body">
+        <form method="get" class="row g-2 mb-3">
+            <input type="hidden" name="tab" value="logs">
+            <div class="col-auto">
+                <select name="log_type" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">Усі типи</option>
+                    <?php foreach ($logTypes as $lt): ?>
+                    <option value="<?php echo escape($lt); ?>" <?php echo $logType === $lt ? 'selected' : ''; ?>><?php echo escape($lt); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </form>
+
+        <?php if (count($logs) > 0): ?>
+        <div class="table-container" style="max-height:500px;overflow-y:auto;">
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:140px;">Час</th>
+                        <th style="width:80px;">Тип</th>
+                        <th style="width:100px;">Джерело</th>
+                        <th>Повідомлення</th>
+                        <th style="width:80px;">Користувач</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($logs as $l):
+                        $typeClass = match($l['type']) {
+                            'error' => 'text-danger',
+                            'warning' => 'text-warning',
+                            'success' => 'text-success',
+                            default => 'text-muted'
+                        };
+                    ?>
+                    <tr>
+                        <td class="small"><?php echo date('d.m.Y H:i:s', strtotime($l['date_added'])); ?></td>
+                        <td><span class="badge bg-<?php echo $l['type'] === 'error' ? 'danger' : ($l['type'] === 'warning' ? 'warning text-dark' : ($l['type'] === 'success' ? 'success' : 'secondary')); ?>"><?php echo escape($l['type']); ?></span></td>
+                        <td class="small"><?php echo escape($l['source'] ?: '-'); ?></td>
+                        <td class="small">
+                            <?php echo escape($l['message']); ?>
+                            <?php if ($l['data']): ?>
+                            <button class="btn btn-sm btn-link py-0" onclick="alert(<?php echo htmlspecialchars(json_encode($l['data'], JSON_UNESCAPED_UNICODE), ENT_QUOTES); ?>)"><i class="bi bi-info-circle"></i></button>
+                            <?php endif; ?>
+                        </td>
+                        <td class="small"><?php echo escape($l['username'] ?: '-'); ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php if ($logPagination['total_pages'] > 1): ?>
+        <div class="mt-2"><?php echo renderPagination(BASE_URL . '/modules/settings.php?tab=logs&', $logPagination, 'log_page'); ?></div>
+        <?php endif; ?>
+        <?php else: ?>
+        <div class="text-center py-4 text-muted">
+            <i class="bi bi-journal-text" style="font-size:2rem;"></i>
+            <p class="mt-2 mb-0">Логів поки що немає</p>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 

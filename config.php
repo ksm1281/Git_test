@@ -283,6 +283,20 @@ function initErpTables($pdo) {
     ");
 
     $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `erp_activity_log` (
+            `log_id` INT AUTO_INCREMENT PRIMARY KEY,
+            `type` VARCHAR(32) NOT NULL DEFAULT 'info',
+            `source` VARCHAR(64),
+            `message` TEXT NOT NULL,
+            `data` TEXT,
+            `user_id` INT,
+            `date_added` DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX `type` (`type`),
+            INDEX `date_added` (`date_added`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    $pdo->exec("
         CREATE TABLE IF NOT EXISTS `erp_sync_log` (
             `log_id` INT AUTO_INCREMENT PRIMARY KEY,
             `type` VARCHAR(32),
@@ -559,6 +573,15 @@ function getDefaultMarkups($pdo) {
 
 function calculatePrice($costUah, $markupPercent) {
     return $costUah * (1 + $markupPercent / 100);
+}
+
+function logActivity($pdo, $type, $message, $source = null, $data = null, $userId = null) {
+    if ($userId === null && isset($_SESSION['erp_user_id'])) {
+        $userId = (int)$_SESSION['erp_user_id'];
+    }
+    $dataJson = is_string($data) ? $data : ($data ? json_encode($data, JSON_UNESCAPED_UNICODE) : null);
+    $stmt = $pdo->prepare("INSERT INTO erp_activity_log (`type`, `source`, `message`, `data`, `user_id`) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([$type, $source, $message, $dataJson, $userId]);
 }
 
 function getProductCostPrice($pdo, $productId) {
