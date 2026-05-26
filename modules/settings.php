@@ -450,14 +450,7 @@ include __DIR__ . '/../includes/header.php';
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($logs as $l):
-                        $typeClass = match($l['type']) {
-                            'error' => 'text-danger',
-                            'warning' => 'text-warning',
-                            'success' => 'text-success',
-                            default => 'text-muted'
-                        };
-                    ?>
+                    <?php foreach ($logs as $l): ?>
                     <tr>
                         <td class="small"><?php echo date('d.m.Y H:i:s', strtotime($l['date_added'])); ?></td>
                         <td><span class="badge bg-<?php echo $l['type'] === 'error' ? 'danger' : ($l['type'] === 'warning' ? 'warning text-dark' : ($l['type'] === 'success' ? 'success' : 'secondary')); ?>"><?php echo escape($l['type']); ?></span></td>
