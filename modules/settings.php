@@ -22,6 +22,7 @@ if ($tab === 'general' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'default_markup_retail' => (float)($_POST['default_markup_retail'] ?? 0),
         'auto_sync_enabled' => $_POST['auto_sync_enabled'] ?? '0',
         'sync_interval_minutes' => (int)($_POST['sync_interval_minutes'] ?? 60),
+        'np_api_key' => trim($_POST['np_api_key'] ?? ''),
     ];
     foreach ($settings as $key => $value) {
         $stmt = $pdo->prepare("INSERT INTO erp_settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = ?");
@@ -354,6 +355,15 @@ include __DIR__ . '/../includes/header.php';
                 <div class="col-md-3">
                     <label class="form-label">Інтервал (хв)</label>
                     <input type="number" name="sync_interval_minutes" class="form-control" value="<?php echo (int)($settings['sync_interval_minutes'] ?? 60); ?>">
+                </div>
+            </div>
+
+            <h6 class="fw-bold mb-2">Інтеграції</h6>
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label">API ключ Нової Пошти</label>
+                    <input type="text" name="np_api_key" class="form-control font-monospace" value="<?php echo escape($settings['np_api_key'] ?? ''); ?>" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                    <div class="form-text">Отримайте у <a href="https://my.novaposhta.ua/settings/index#api" target="_blank">кабінеті НП → API</a></div>
                 </div>
             </div>
 

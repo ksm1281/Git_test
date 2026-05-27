@@ -59,11 +59,16 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $notes = trim($_POST['notes'] ?? '');
     $paymentMethod = $_POST['payment_method'] ?? '';
     $deliveryMethod = $_POST['delivery_method'] ?? '';
-    $deliveryCity = trim($_POST['delivery_city'] ?? '');
+    if ($deliveryMethod === 'nova_poshta') {
+        $deliveryCity = trim($_POST['np_city'] ?? '');
+        $deliveryOffice = trim($_POST['np_warehouse'] ?? '');
+    } else {
+        $deliveryCity = trim($_POST['delivery_city'] ?? '');
+        $deliveryOffice = trim($_POST['delivery_office'] ?? '');
+    }
     $deliveryStreet = trim($_POST['delivery_street'] ?? '');
     $deliveryBuilding = trim($_POST['delivery_building'] ?? '');
     $deliveryApartment = trim($_POST['delivery_apartment'] ?? '');
-    $deliveryOffice = trim($_POST['delivery_office'] ?? '');
     $deliveryAddress = $deliveryMethod === 'courier'
         ? trim("$deliveryStreet, буд. $deliveryBuilding" . ($deliveryApartment ? ", $deliveryApartment" : ''))
         : trim($deliveryCity . ($deliveryOffice ? ', від. ' . $deliveryOffice : ''));
@@ -543,9 +548,6 @@ if ($action === 'create' || $action === 'edit') {
     $order = [];
     $items = [];
 
-    $stmt = $pdo->query("SELECT product_id, name, model, sku, price_retail, price_wholesale, price_semi_wholesale FROM erp_products WHERE status = 1 ORDER BY name ASC LIMIT 1000");
-    $products = $stmt->fetchAll();
-
     if ($isEdit) {
         $stmt = $pdo->prepare("SELECT * FROM erp_orders WHERE order_id=?");
         $stmt->execute([$orderId]);
@@ -591,7 +593,11 @@ if ($action === 'create' || $action === 'edit') {
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Телефон</label>
-                        <input type="tel" name="telephone" id="orderTelephone" class="form-control" value="<?php echo $isEdit ? escape($order['telephone']) : ''; ?>" pattern="^\+?380[0-9]{9}$|^0[0-9]{9}$" title="Формат: +380XXXXXXXXX або 0XXXXXXXXX">
+                        <div style="display:flex;gap:3px;">
+                            <input type="tel" name="telephone" id="orderTelephone" class="form-control" value="<?php echo $isEdit ? escape($order['telephone']) : ''; ?>" pattern="^\+?380[0-9]{9}$|^0[0-9]{9}$" title="Формат: +380XXXXXXXXX або 0XXXXXXXXX" style="flex:1;">
+                            <a href="#" target="_blank" id="telegramLink" title="Telegram" style="display:none;align-items:center;justify-content:center;width:34px;border:1px solid #dee2e6;border-radius:4px;text-decoration:none;background:#fff;"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0088cc"><path d="M2.5 3.2l18.5 7.8c.7.3.7 1.2 0 1.5L2.5 20.2c-.7.3-1.4-.3-1.2-1L3.7 13c.1-.3.3-.5.6-.6l8.8-2.4c.2-.1.2-.3 0-.4L4.3 7.1c-.3-.1-.5-.3-.6-.6L1.3 4.2c-.2-.7.5-1.3 1.2-1z"/></svg></a>
+                            <a href="#" target="_blank" id="viberLink" title="Viber" style="display:none;align-items:center;justify-content:center;width:34px;border:1px solid #dee2e6;border-radius:4px;text-decoration:none;background:#fff;"><svg width="18" height="18" viewBox="0 0 24 24" fill="#7360F2"><path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg></a>
+                        </div>
                         <small class="text-muted">+380XXXXXXXXX або 0XXXXXXXXX</small>
                     </div>
                     <div class="col-md-3">
@@ -623,13 +629,30 @@ if ($action === 'create' || $action === 'edit') {
                         <label class="form-label">Квартира/офіс</label>
                         <input type="text" name="delivery_apartment" class="form-control" value="<?php echo $isEdit ? escape($order['delivery_apartment']) : ''; ?>" placeholder="№">
                     </div>
-                    <div class="col-md-3 delivery-field delivery-post">
+                    <div class="col-md-6 delivery-field delivery-np" style="display:none;">
                         <label class="form-label">Місто</label>
-                        <input type="text" name="delivery_city" class="form-control" value="<?php echo $isEdit ? escape($order['delivery_city']) : ''; ?>" placeholder="Місто">
+                        <div class="position-relative">
+                            <input type="text" class="form-control" id="npCitySearch" placeholder="Почніть вводити назву міста..." autocomplete="off" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_city']) : ''; ?>">
+                            <input type="hidden" name="np_city" id="npCityHidden" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_city']) : ''; ?>">
+                            <input type="hidden" id="npCityRef" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_city']) : ''; ?>">
+                            <div id="npCityDropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;"></div>
+                        </div>
                     </div>
-                    <div class="col-md-3 delivery-field delivery-post">
+                    <div class="col-md-3 delivery-field delivery-np" style="display:none;">
                         <label class="form-label">Відділення</label>
-                        <input type="text" name="delivery_office" class="form-control" value="<?php echo $isEdit ? escape($order['delivery_office']) : ''; ?>" placeholder="№ відділення / адреса">
+                        <div class="position-relative">
+                            <input type="text" class="form-control" id="npWarehouseSearch" placeholder="Почніть вводити номер відділення..." autocomplete="off" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_office']) : ''; ?>">
+                            <input type="hidden" name="np_warehouse" id="npWarehouseHidden" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_office']) : ''; ?>">
+                            <div id="npWarehouseDropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;"></div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 delivery-field delivery-other-post" style="display:none;">
+                        <label class="form-label">Місто</label>
+                        <input type="text" name="delivery_city" class="form-control" value="<?php echo $isEdit && !in_array($order['delivery_method'], ['nova_poshta', 'courier', 'pickup', '']) ? escape($order['delivery_city']) : ''; ?>" placeholder="Місто">
+                    </div>
+                    <div class="col-md-3 delivery-field delivery-other-post" style="display:none;">
+                        <label class="form-label">Відділення</label>
+                        <input type="text" name="delivery_office" class="form-control" value="<?php echo $isEdit && !in_array($order['delivery_method'], ['nova_poshta', 'courier', 'pickup', '']) ? escape($order['delivery_office']) : ''; ?>" placeholder="№ відділення / адреса">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Статус</label>
@@ -680,7 +703,7 @@ if ($action === 'create' || $action === 'edit') {
                                     <td class="position-relative">
                                         <input type="text" class="form-control form-control-sm product-autocomplete" placeholder="Пошук товару..." autocomplete="off" value="<?php echo $item['product_id'] ? escape($item['product_name'] ?? '') : ''; ?>">
                                         <input type="hidden" name="product_id[]" class="product-id-input" value="<?php echo (int)$item['product_id']; ?>">
-                                        <div class="product-dropdown dropdown-menu" style="max-height:200px;overflow-y:auto;width:100%;"></div>
+                                        <div class="product-dropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;"></div>
                                         <div class="price-chips d-none mt-1 small">
                                             <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="retail" title="Роздріб">Роздріб</button>
                                             <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="semi" title="Дрібний опт">Дріб.опт</button>
@@ -698,7 +721,7 @@ if ($action === 'create' || $action === 'edit') {
                                 <td class="position-relative">
                                     <input type="text" class="form-control form-control-sm product-autocomplete" placeholder="Пошук товару..." autocomplete="off">
                                     <input type="hidden" name="product_id[]" class="product-id-input" value="">
-                                    <div class="product-dropdown dropdown-menu" style="max-height:200px;overflow-y:auto;width:100%;"></div>
+                                    <div class="product-dropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;"></div>
                                     <div class="price-chips d-none mt-1 small">
                                         <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="retail" title="Роздріб">Роздріб</button>
                                         <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="semi" title="Дрібний опт">Дріб.опт</button>
@@ -767,17 +790,15 @@ if ($action === 'create' || $action === 'edit') {
         </div>
     </div>
     <script>
-    var productsData = <?php echo json_encode(array_map(function($p) {
-        return ['id' => (int)$p['product_id'], 'name' => $p['name'], 'model' => $p['model'], 'sku' => $p['sku'], 'retail' => (float)$p['price_retail'], 'wholesale' => (float)$p['price_wholesale'], 'semi' => (float)$p['price_semi_wholesale']];
-    }, $products), JSON_UNESCAPED_UNICODE); ?>;
-
     function toggleDeliveryFields() {
         const method = document.getElementById('deliveryMethod')?.value;
         document.querySelectorAll('.delivery-field').forEach(el => el.style.display = 'none');
         if (method === 'courier') {
             document.querySelectorAll('.delivery-courier').forEach(el => el.style.display = 'block');
-        } else if (method === 'nova_poshta' || method === 'delivery' || method === 'ukrposhta') {
-            document.querySelectorAll('.delivery-post').forEach(el => el.style.display = 'block');
+        } else if (method === 'nova_poshta') {
+            document.querySelectorAll('.delivery-np').forEach(el => el.style.display = 'block');
+        } else if (method === 'delivery' || method === 'ukrposhta') {
+            document.querySelectorAll('.delivery-other-post').forEach(el => el.style.display = 'block');
         }
     }
     toggleDeliveryFields();
@@ -794,7 +815,7 @@ if ($action === 'create' || $action === 'edit') {
             input.value = name;
             input._lastVal = name;
             row._prices = prices;
-            dropdown.classList.remove('show');
+            dropdown.style.display = 'none';
             if (chips) {
                 chips.classList.remove('d-none');
                 chips.querySelectorAll('.price-chip').forEach(function(c) { c.classList.remove('active'); });
@@ -810,21 +831,50 @@ if ($action === 'create' || $action === 'edit') {
             }
         }
 
-        function filterProducts(q) {
-            if (!q) { dropdown.classList.remove('show'); return; }
-            var lower = q.toLowerCase();
-            var matches = productsData.filter(function(p) {
-                return (p.name && p.name.toLowerCase().includes(lower)) ||
-                       (p.model && p.model.toLowerCase().includes(lower)) ||
-                       (p.sku && p.sku.toLowerCase().includes(lower));
-            }).slice(0, 20);
-            if (matches.length === 0) { dropdown.classList.remove('show'); return; }
-            dropdown.innerHTML = matches.map(function(p) {
-                var price = p.retail ? ' - ' + p.retail.toFixed(2) + ' ₴' : '';
-                return '<button class="dropdown-item" type="button" data-id="' + p.id + '" data-retail="' + p.retail + '" data-wholesale="' + p.wholesale + '" data-semi="' + p.semi + '">' + escapeHtml(p.name) + price + '</button>';
-            }).join('');
-            dropdown.classList.add('show');
+        function positionDropdown() {
+            var rect = input.getBoundingClientRect();
+            var top = rect.bottom;
+            var maxH = Math.min(200, window.innerHeight - rect.bottom - 20);
+            if (maxH < 80) {
+                top = Math.max(0, rect.top - 200);
+                maxH = 200;
+            }
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = top + 'px';
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.width = rect.width + 'px';
+            dropdown.style.maxHeight = maxH + 'px';
         }
+
+        function filterProducts(q) {
+            if (!q) { dropdown.style.display = 'none'; return; }
+            fetch('<?php echo BASE_URL; ?>/api/search-products.php?q=' + encodeURIComponent(q))
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(function(data) {
+                    if (!data || data.length === 0) { dropdown.style.display = 'none'; return; }
+                    if (data.error) { console.error('API error:', data.error); dropdown.style.display = 'none'; return; }
+                    dropdown.innerHTML = data.map(function(p) {
+                        var price = parseFloat(p.price_retail) ? ' - ' + parseFloat(p.price_retail).toFixed(2) + ' ₴' : '';
+                        return '<button class="dropdown-item" type="button" data-id="' + p.product_id + '" data-retail="' + (p.price_retail || 0) + '" data-wholesale="' + (p.price_wholesale || 0) + '" data-semi="' + (p.price_semi_wholesale || 0) + '">' + escapeHtml(p.name) + price + '</button>';
+                    }).join('');
+                    positionDropdown();
+                    dropdown.style.display = 'block';
+                })
+                .catch(function(err) {
+                    console.error('Product search error:', err);
+                    dropdown.style.display = 'none';
+                });
+        }
+
+        var debounceTimer;
+        function repositionOnScroll() {
+            if (dropdown.style.display === 'block') positionDropdown();
+        }
+        window.addEventListener('scroll', repositionOnScroll, true);
+        window.addEventListener('resize', repositionOnScroll);
 
         input.addEventListener('input', function() {
             if (this.value !== this._lastVal) {
@@ -832,11 +882,12 @@ if ($action === 'create' || $action === 'edit') {
                 this._lastVal = this.value;
                 if (chips) chips.classList.add('d-none');
             }
-            filterProducts(this.value);
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function() { filterProducts(input.value); }, 250);
         });
 
         input.addEventListener('blur', function() {
-            setTimeout(function() { dropdown.classList.remove('show'); }, 200);
+            setTimeout(function() { dropdown.style.display = 'none'; }, 200);
         });
 
         input.addEventListener('focus', function() {
@@ -873,13 +924,6 @@ if ($action === 'create' || $action === 'edit') {
             }
         }
 
-        if (hidden.value && chips) {
-            var found = productsData.find(function(p) { return String(p.id) === hidden.value; });
-            if (found) {
-                row._prices = { retail: found.retail, wholesale: found.wholesale, semi: found.semi };
-                chips.classList.remove('d-none');
-            }
-        }
     }
 
     function escapeHtml(str) {
@@ -972,6 +1016,7 @@ if ($action === 'create' || $action === 'edit') {
                             document.getElementById('orderTelephone').value = this.dataset.telephone;
                             document.getElementById('orderEmail').value = this.dataset.email;
                             input.value = ((this.dataset.firstname || '') + ' ' + (this.dataset.lastname || '')).trim();
+                            updateMessengerLinks();
                             hide();
                         });
                         dropdown.appendChild(opt);
@@ -988,6 +1033,162 @@ if ($action === 'create' || $action === 'edit') {
             setTimeout(hide, 200);
         });
     })();
+
+    // Nova Poshta city autocomplete
+    (function() {
+        var input = document.getElementById('npCitySearch');
+        var hidden = document.getElementById('npCityHidden');
+        var ref = document.getElementById('npCityRef');
+        var dropdown = document.getElementById('npCityDropdown');
+        if (!input || !hidden || !ref || !dropdown) return;
+
+        function hide() { dropdown.style.display = 'none'; }
+
+        function positionDropdown() {
+            var rect = input.getBoundingClientRect();
+            dropdown.style.top = rect.bottom + 'px';
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.width = rect.width + 'px';
+            dropdown.style.maxHeight = Math.min(200, window.innerHeight - rect.bottom - 20) + 'px';
+        }
+
+        input.addEventListener('input', function() {
+            var q = this.value.trim();
+            if (q.length < 1) { hide(); return; }
+            fetch('<?php echo BASE_URL; ?>/api/nova-poshta.php?action=cities&q=' + encodeURIComponent(q))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) { dropdown.innerHTML = '<div class="dropdown-item text-danger small">' + escapeHtml(data.error) + '</div>'; positionDropdown(); dropdown.style.display = 'block'; return; }
+                    if (!data || data.length === 0) { hide(); return; }
+                    dropdown.innerHTML = '';
+                    for (var i = 0; i < data.length; i++) {
+                        var btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'dropdown-item';
+                        btn.dataset.ref = data[i].ref;
+                        btn.dataset.name = data[i].name;
+                        btn.textContent = data[i].name;
+                        btn.addEventListener('mousedown', function(e) {
+                            e.preventDefault();
+                            input.value = this.dataset.name;
+                            hidden.value = this.dataset.name;
+                            ref.value = this.dataset.ref;
+                            hide();
+                            document.getElementById('npWarehouseSearch').focus();
+                        });
+                        dropdown.appendChild(btn);
+                    }
+                    positionDropdown();
+                    dropdown.style.display = 'block';
+                })
+                .catch(function(err) { console.error('NP search error:', err); hide(); });
+        });
+
+        input.addEventListener('blur', function() {
+            setTimeout(hide, 200);
+        });
+    })();
+
+    function searchWarehouses(callback) {
+        var ref = document.getElementById('npCityRef');
+        var q = document.getElementById('npWarehouseSearch').value.trim();
+        if (!ref || !ref.value) { callback([]); return; }
+        fetch('<?php echo BASE_URL; ?>/api/nova-poshta.php?action=warehouses&city_ref=' + encodeURIComponent(ref.value) + '&q=' + encodeURIComponent(q))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) { callback(null, data.error); return; }
+                callback(data || []);
+            })
+            .catch(function(err) { console.error('NP warehouses error:', err); callback([]); });
+    }
+
+    (function() {
+        var input = document.getElementById('npWarehouseSearch');
+        var hidden = document.getElementById('npWarehouseHidden');
+        var dropdown = document.getElementById('npWarehouseDropdown');
+        if (!input || !hidden || !dropdown) return;
+
+        function positionDropdown() {
+            var rect = input.getBoundingClientRect();
+            dropdown.style.top = rect.bottom + 'px';
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.width = rect.width + 'px';
+            dropdown.style.maxHeight = Math.min(200, window.innerHeight - rect.bottom - 20) + 'px';
+        }
+
+        function hide() { dropdown.style.display = 'none'; }
+
+        var debounceTimer;
+        input.addEventListener('input', function() {
+            if (this.value !== this._lastVal) {
+                hidden.value = '';
+                this._lastVal = this.value;
+            }
+            clearTimeout(debounceTimer);
+            if (!this.value) { hide(); return; }
+            debounceTimer = setTimeout(function() {
+                searchWarehouses(function(data, error) {
+                    if (error) { dropdown.innerHTML = '<div class="dropdown-item text-danger small">' + escapeHtml(error) + '</div>'; positionDropdown(); dropdown.style.display = 'block'; return; }
+                    if (!data || data.length === 0) { hide(); return; }
+                    dropdown.innerHTML = '';
+                    for (var i = 0; i < data.length; i++) {
+                        var btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'dropdown-item';
+                        btn.dataset.value = data[i].name;
+                        btn.textContent = data[i].name;
+                        btn.addEventListener('mousedown', function(e) {
+                            e.preventDefault();
+                            input.value = this.textContent;
+                            input._lastVal = this.textContent;
+                            hidden.value = this.textContent;
+                            hide();
+                        });
+                        dropdown.appendChild(btn);
+                    }
+                    positionDropdown();
+                    dropdown.style.display = 'block';
+                });
+            }, 300);
+        });
+
+        input.addEventListener('blur', function() {
+            setTimeout(hide, 200);
+        });
+
+        input.addEventListener('focus', function() {
+            if (this.value && !hidden.value) searchWarehouses(function(data) {
+                if (data.length) { /* reshows dropdown */ }
+            });
+        });
+    })();
+
+    function normalizePhone(phone) {
+        var digits = phone.replace(/\D/g, '');
+        if (digits.length === 10 && digits.startsWith('0')) return '38' + digits;
+        if (digits.length === 9) return '380' + digits;
+        if (digits.startsWith('380')) return digits;
+        return digits;
+    }
+
+    function updateMessengerLinks() {
+        var phone = document.getElementById('orderTelephone').value.trim();
+        var tgLink = document.getElementById('telegramLink');
+        var vbLink = document.getElementById('viberLink');
+        if (!phone) {
+            tgLink.style.display = 'none';
+            vbLink.style.display = 'none';
+            return;
+        }
+        var normalized = normalizePhone(phone);
+        tgLink.href = 'tg://resolve?phone=' + normalized;
+        vbLink.href = 'viber://chat?number=' + normalized;
+        tgLink.style.display = 'flex';
+        vbLink.style.display = 'flex';
+    }
+
+    document.getElementById('orderTelephone').addEventListener('input', updateMessengerLinks);
+    updateMessengerLinks();
 
     function calcTotal() {
         let total = 0;
@@ -1064,7 +1265,20 @@ if ($action === 'view' && $orderId) {
                         </div>
                         <div class="col-md-3">
                             <small class="text-muted">Телефон</small>
-                            <div><?php echo escape($order['telephone'] ?: '-'); ?></div>
+                            <div><?php
+                                $phone = $order['telephone'] ?? '';
+                                if ($phone):
+                                    $digits = preg_replace('/\D/', '', $phone);
+                                    if (strlen($digits) === 10 && $digits[0] === '0') $digits = '38' . $digits;
+                                    elseif (strlen($digits) === 9) $digits = '380' . $digits;
+                                    elseif (!str_starts_with($digits, '380')) $digits = '380' . $digits;
+                                    echo escape($phone);
+                                    echo ' <a href="tg://resolve?phone=' . $digits . '" target="_blank" class="text-decoration-none" title="Telegram"><i class="bi bi-telegram" style="color:#0088cc;vertical-align:middle;"></i></a>';
+                                    echo ' <a href="viber://chat?number=' . $digits . '" target="_blank" class="text-decoration-none" title="Viber"><svg width="16" height="16" viewBox="0 0 24 24" style="vertical-align:middle;"><rect width="24" height="24" rx="4" fill="#7360F2"/><path d="M17.4 14.1c-.4-.4-.9-.6-1.4-.6s-1 .2-1.4.6l-1.1 1.1c-1.7-.9-3.1-2.1-4.1-3.7l1.1-1.1c.4-.4.6-.9.6-1.4s-.2-1-.6-1.4l-1-1c-.4-.4-.9-.6-1.4-.6s-1 .2-1.4.6L5.5 8.9c-.7.7-1 1.6-1 2.6 0 3.3 2.5 7.5 7.5 7.5 1 0 1.9-.4 2.6-1l1.1-1.1c.4-.4.6-.9.6-1.4s-.2-1-.6-1.4l-1-1z" fill="white"/></svg></a>';
+                                else:
+                                    echo '-';
+                                endif;
+                            ?></div>
                         </div>
                         <div class="col-md-3">
                             <small class="text-muted">Email</small>
