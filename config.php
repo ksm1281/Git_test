@@ -29,7 +29,7 @@ if (!defined('OC_DB_PREFIX')) define('OC_DB_PREFIX', 'oc_');
 
 // App Configuration
 define('APP_NAME', 'ERP/CRM');
-define('APP_VERSION', '1.5.0');
+define('APP_VERSION', '1.7.0');
 define('CURRENCY_SYMBOL', '&#8372;');
 define('CURRENCY_CODE', 'UAH');
 define('BASE_CURRENCY', 'UAH');
@@ -174,6 +174,7 @@ function initErpTables($pdo) {
             `customer_id` INT PRIMARY KEY,
             `firstname` VARCHAR(64),
             `lastname` VARCHAR(64),
+            `patronymic` VARCHAR(64),
             `email` VARCHAR(128),
             `telephone` VARCHAR(32),
             `group_name` VARCHAR(64),
@@ -181,6 +182,8 @@ function initErpTables($pdo) {
             `total_spent` DECIMAL(15,4) DEFAULT 0,
             `status` TINYINT DEFAULT 1,
             `date_synced` DATETIME,
+            `date_start` DATE,
+            `date_end` DATE,
             `date_added` DATETIME,
             `date_modified` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -365,11 +368,30 @@ function initErpTables($pdo) {
     try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_address TEXT DEFAULT NULL AFTER delivery_method"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_address TEXT DEFAULT NULL AFTER delivery_method"); } catch (PDOException $e2) { /* ignore */ }
     }
-    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS company_name VARCHAR(255) DEFAULT NULL AFTER group_name"); } catch (PDOException $e) { /* ignore */ }
-    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS edrpou VARCHAR(32) DEFAULT NULL AFTER company_name"); } catch (PDOException $e) { /* ignore */ }
-    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS legal_address TEXT DEFAULT NULL AFTER edrpou"); } catch (PDOException $e) { /* ignore */ }
-    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS iban VARCHAR(64) DEFAULT NULL AFTER legal_address"); } catch (PDOException $e) { /* ignore */ }
-    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS mfo VARCHAR(16) DEFAULT NULL AFTER iban"); } catch (PDOException $e) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS company_name VARCHAR(255) DEFAULT NULL AFTER group_name"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN company_name VARCHAR(255) DEFAULT NULL AFTER group_name"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS edrpou VARCHAR(32) DEFAULT NULL AFTER company_name"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN edrpou VARCHAR(32) DEFAULT NULL AFTER company_name"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS legal_address TEXT DEFAULT NULL AFTER edrpou"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN legal_address TEXT DEFAULT NULL AFTER edrpou"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS iban VARCHAR(64) DEFAULT NULL AFTER legal_address"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN iban VARCHAR(64) DEFAULT NULL AFTER legal_address"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS mfo VARCHAR(16) DEFAULT NULL AFTER iban"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN mfo VARCHAR(16) DEFAULT NULL AFTER iban"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS patronymic VARCHAR(64) DEFAULT NULL AFTER lastname"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN patronymic VARCHAR(64) DEFAULT NULL AFTER lastname"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS date_start DATE DEFAULT NULL AFTER date_synced"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN date_start DATE DEFAULT NULL AFTER date_synced"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN IF NOT EXISTS date_end DATE DEFAULT NULL AFTER date_start"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_customers ADD COLUMN date_end DATE DEFAULT NULL AFTER date_start"); } catch (PDOException $e2) { /* ignore */ }
+    }
 
     try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS order_date DATE DEFAULT NULL AFTER delivery_address"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN order_date DATE DEFAULT NULL AFTER delivery_address"); } catch (PDOException $e2) { /* ignore */ }
@@ -518,7 +540,7 @@ function isManager() {
 }
 
 function formatMoney($amount) {
-    return CURRENCY_SYMBOL . number_format($amount, 2, '.', ' ');
+    return CURRENCY_SYMBOL . number_format((float)$amount, 2, '.', ' ');
 }
 
 function formatMoneyForeign($amount, $currency = 'USD') {
@@ -527,12 +549,36 @@ function formatMoneyForeign($amount, $currency = 'USD') {
 
 function formatDate($date) {
     if (empty($date)) return '-';
-    return date('d.m.Y H:i', strtotime($date));
+    if ($date === '0000-00-00' || $date === '0000-00-00 00:00:00') return '-';
+    $ts = strtotime($date);
+    if ($ts === false || (int)date('Y', $ts) < 1000) return '-';
+    return date('d.m.Y H:i', $ts);
 }
 
 function formatDateShort($date) {
     if (empty($date)) return '-';
-    return date('d.m.Y', strtotime($date));
+    if ($date === '0000-00-00' || $date === '0000-00-00 00:00:00') return '-';
+    $ts = strtotime($date);
+    if ($ts === false || (int)date('Y', $ts) < 1000) return '-';
+    return date('d.m.Y', $ts);
+}
+
+function convertUaDate($date) {
+    if (empty($date)) return null;
+    $months = [
+        'січ' => '01', 'лют' => '02', 'бер' => '03', 'кві' => '04',
+        'тра' => '05', 'чер' => '06', 'лип' => '07', 'серп' => '08',
+        'вер' => '09', 'жов' => '10', 'лис' => '11', 'груд' => '12',
+    ];
+    $d = trim($date);
+    $d = str_replace('.', '', $d);
+    if (!preg_match('/^(\d{1,2})-([а-яіїєґ]{3,5})-(\d{2,4})$/iu', $d, $m)) return $date;
+    $day = str_pad($m[1], 2, '0', STR_PAD_LEFT);
+    $month = $months[mb_strtolower($m[2])] ?? null;
+    if (!$month) return $date;
+    $year = (int)$m[3];
+    if ($year < 100) $year += $year < 30 ? 2000 : 1900;
+    return "$year-$month-$day";
 }
 
 function escape($str) {
@@ -733,15 +779,31 @@ function paginate($total, $perPage, $currentPage) {
 if (!function_exists('renderPagination')) {
 function renderPagination($baseUrl, $pagination, $pageParam = 'page') {
     if ($pagination['total_pages'] <= 1) return '';
-    $html = '<nav><ul class="pagination justify-content-center">';
-    $html .= '<li class="page-item ' . ($pagination['current_page'] <= 1 ? 'disabled' : '') . '">';
-    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($pagination['current_page'] - 1) . '">&laquo;</a></li>';
-    for ($i = 1; $i <= $pagination['total_pages']; $i++) {
-        $html .= '<li class="page-item ' . ($i === $pagination['current_page'] ? 'active' : '') . '">';
-        $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . $i . '">' . $i . '</a></li>';
+    $current = $pagination['current_page'];
+    $total = $pagination['total_pages'];
+    $range = 3;
+    $html = '<nav><ul class="pagination justify-content-center flex-wrap">';
+    $html .= '<li class="page-item ' . ($current <= 1 ? 'disabled' : '') . '">';
+    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($current - 1) . '">&laquo;</a></li>';
+    $pages = [];
+    $pages[] = 1;
+    for ($i = max(2, $current - $range); $i <= min($total - 1, $current + $range); $i++) {
+        $pages[] = $i;
     }
-    $html .= '<li class="page-item ' . ($pagination['current_page'] >= $pagination['total_pages'] ? 'disabled' : '') . '">';
-    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($pagination['current_page'] + 1) . '">&raquo;</a></li>';
+    if ($total > 1) $pages[] = $total;
+    $pages = array_unique($pages);
+    sort($pages);
+    $last = 0;
+    foreach ($pages as $p) {
+        if ($p - $last > 1) {
+            $html .= '<li class="page-item disabled"><span class="page-link">...</span></li>';
+        }
+        $html .= '<li class="page-item ' . ($p === $current ? 'active' : '') . '">';
+        $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . $p . '">' . $p . '</a></li>';
+        $last = $p;
+    }
+    $html .= '<li class="page-item ' . ($current >= $total ? 'disabled' : '') . '">';
+    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($current + 1) . '">&raquo;</a></li>';
     $html .= '</ul></nav>';
     return $html;
 }

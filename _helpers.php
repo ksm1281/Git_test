@@ -61,15 +61,31 @@ function paginate($total, $perPage, $currentPage) {
 if (!function_exists('renderPagination')) {
 function renderPagination($baseUrl, $pagination, $pageParam = 'page') {
     if ($pagination['total_pages'] <= 1) return '';
-    $html = '<nav><ul class="pagination justify-content-center">';
-    $html .= '<li class="page-item ' . ($pagination['current_page'] <= 1 ? 'disabled' : '') . '">';
-    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($pagination['current_page'] - 1) . '">&laquo;</a></li>';
-    for ($i = 1; $i <= $pagination['total_pages']; $i++) {
-        $html .= '<li class="page-item ' . ($i === $pagination['current_page'] ? 'active' : '') . '">';
-        $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . $i . '">' . $i . '</a></li>';
+    $current = $pagination['current_page'];
+    $total = $pagination['total_pages'];
+    $range = 3;
+    $html = '<nav><ul class="pagination justify-content-center flex-wrap">';
+    $html .= '<li class="page-item ' . ($current <= 1 ? 'disabled' : '') . '">';
+    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($current - 1) . '">&laquo;</a></li>';
+    $pages = [];
+    $pages[] = 1;
+    for ($i = max(2, $current - $range); $i <= min($total - 1, $current + $range); $i++) {
+        $pages[] = $i;
     }
-    $html .= '<li class="page-item ' . ($pagination['current_page'] >= $pagination['total_pages'] ? 'disabled' : '') . '">';
-    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($pagination['current_page'] + 1) . '">&raquo;</a></li>';
+    if ($total > 1) $pages[] = $total;
+    $pages = array_unique($pages);
+    sort($pages);
+    $last = 0;
+    foreach ($pages as $p) {
+        if ($p - $last > 1) {
+            $html .= '<li class="page-item disabled"><span class="page-link">...</span></li>';
+        }
+        $html .= '<li class="page-item ' . ($p === $current ? 'active' : '') . '">';
+        $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . $p . '">' . $p . '</a></li>';
+        $last = $p;
+    }
+    $html .= '<li class="page-item ' . ($current >= $total ? 'disabled' : '') . '">';
+    $html .= '<a class="page-link" href="' . $baseUrl . '&' . $pageParam . '=' . ($current + 1) . '">&raquo;</a></li>';
     $html .= '</ul></nav>';
     return $html;
 }
