@@ -73,6 +73,8 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         ? trim("$deliveryStreet, буд. $deliveryBuilding" . ($deliveryApartment ? ", $deliveryApartment" : ''))
         : trim($deliveryCity . ($deliveryOffice ? ', від. ' . $deliveryOffice : ''));
     $orderDate = $_POST['order_date'] ?? date('Y-m-d');
+    $ttnNumber = trim($_POST['ttn_number'] ?? '');
+    $deliveryStatus = $_POST['delivery_status'] ?? 'new';
     $payAmount = (float)($_POST['pay_amount'] ?? 0);
     $payMethod = $_POST['pay_method'] ?? 'cash';
     $payDate = $_POST['pay_date'] ?? date('Y-m-d');
@@ -89,8 +91,8 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $pdo->beginTransaction();
     try {
         if ($orderId) {
-            $stmt = $pdo->prepare("UPDATE erp_orders SET customer_name=?, email=?, telephone=?, status_name=?, erp_notes=?, payment_method=?, delivery_method=?, delivery_address=?, delivery_city=?, delivery_street=?, delivery_building=?, delivery_apartment=?, delivery_office=?, order_date=? WHERE order_id=?");
-            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $orderDate, $orderId]);
+            $stmt = $pdo->prepare("UPDATE erp_orders SET customer_name=?, email=?, telephone=?, status_name=?, erp_notes=?, payment_method=?, delivery_method=?, delivery_address=?, delivery_city=?, delivery_street=?, delivery_building=?, delivery_apartment=?, delivery_office=?, ttn_number=?, delivery_status=?, order_date=? WHERE order_id=?");
+            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $ttnNumber, $deliveryStatus, $orderDate, $orderId]);
 
             $oldProducts = $pdo->prepare("SELECT product_id, quantity FROM erp_order_products WHERE order_id=?");
             $oldProducts->execute([$orderId]);
@@ -100,8 +102,8 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $pdo->prepare("DELETE FROM erp_order_products WHERE order_id=?")->execute([$orderId]);
         } else {
-            $stmt = $pdo->prepare("INSERT INTO erp_orders (customer_name, email, telephone, status_name, total, erp_notes, payment_method, delivery_method, delivery_address, delivery_city, delivery_street, delivery_building, delivery_apartment, delivery_office, order_date) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $orderDate]);
+            $stmt = $pdo->prepare("INSERT INTO erp_orders (customer_name, email, telephone, status_name, total, erp_notes, payment_method, delivery_method, delivery_address, delivery_city, delivery_street, delivery_building, delivery_apartment, delivery_office, ttn_number, delivery_status, order_date) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $ttnNumber, $deliveryStatus, $orderDate]);
             $orderId = (int)$pdo->lastInsertId();
         }
 
@@ -230,6 +232,19 @@ if ($action === 'status' && $orderId && isManager()) {
         flashMessage('success', 'Статус замовлення змінено на "' . $newStatus . '"');
     } else {
         flashMessage('error', 'Невірний статус');
+    }
+    redirect(BASE_URL . '/modules/orders.php?action=view&id=' . $orderId);
+}
+
+if ($action === 'delivery_status' && $orderId && isManager()) {
+    $newDs = $_GET['ds'] ?? '';
+    $validDs = ['new', 'sending', 'in_transit', 'arrived', 'delivered', 'returned'];
+    if (in_array($newDs, $validDs)) {
+        $pdo->prepare("UPDATE erp_orders SET delivery_status=? WHERE order_id=?")->execute([$newDs, $orderId]);
+        $dsLabels = ['new' => 'Нове', 'sending' => 'Відправляється', 'in_transit' => 'В дорозі', 'arrived' => 'Прибуло у відділення', 'delivered' => 'Видано одержувачу', 'returned' => 'Повернення'];
+        flashMessage('success', 'Статус доставки змінено на "' . ($dsLabels[$newDs] ?? $newDs) . '"');
+    } else {
+        flashMessage('error', 'Невірний статус доставки');
     }
     redirect(BASE_URL . '/modules/orders.php?action=view&id=' . $orderId);
 }
@@ -660,6 +675,21 @@ if ($action === 'create' || $action === 'edit') {
                             <?php foreach ($statusOptions as $val => $label): ?>
                             <option value="<?php echo $val; ?>" <?php echo $isEdit && $order['status_name'] === $val ? 'selected' : ''; ?>><?php echo $label; ?></option>
                             <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Номер ТТН</label>
+                        <input type="text" name="ttn_number" class="form-control" value="<?php echo $isEdit ? escape($order['ttn_number']) : ''; ?>" placeholder="Транспортний номер">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Статус доставки</label>
+                        <select name="delivery_status" class="form-select">
+                            <option value="new" <?php echo $isEdit && $order['delivery_status'] === 'new' ? 'selected' : ''; ?>>Нове</option>
+                            <option value="sending" <?php echo $isEdit && $order['delivery_status'] === 'sending' ? 'selected' : ''; ?>>Відправляється</option>
+                            <option value="in_transit" <?php echo $isEdit && $order['delivery_status'] === 'in_transit' ? 'selected' : ''; ?>>В дорозі</option>
+                            <option value="arrived" <?php echo $isEdit && $order['delivery_status'] === 'arrived' ? 'selected' : ''; ?>>Прибуло у відділення</option>
+                            <option value="delivered" <?php echo $isEdit && $order['delivery_status'] === 'delivered' ? 'selected' : ''; ?>>Видано одержувачу</option>
+                            <option value="returned" <?php echo $isEdit && $order['delivery_status'] === 'returned' ? 'selected' : ''; ?>>Повернення</option>
                         </select>
                     </div>
                     <div class="col-md-3">
@@ -1225,7 +1255,9 @@ if ($action === 'view' && $orderId) {
 
     $statusOptions = ['pending' => 'Очікує', 'approved' => 'Підтверджено', 'processed' => 'В обробці', 'shipped' => 'Відправлено', 'delivered' => 'Доставлено', 'cancelled' => 'Скасовано'];
     $statusClasses = ['pending' => 'bg-warning text-dark', 'approved' => 'bg-info', 'processed' => 'bg-primary', 'shipped' => 'bg-secondary', 'delivered' => 'bg-success', 'cancelled' => 'bg-danger'];
-    $canEdit = in_array($order['status_name'], ['pending', 'approved']);
+    $deliveryStatusOptions = ['new' => 'Нове', 'sending' => 'Відправляється', 'in_transit' => 'В дорозі', 'arrived' => 'Прибуло у відділення', 'delivered' => 'Видано одержувачу', 'returned' => 'Повернення'];
+    $deliveryStatusClasses = ['new' => 'bg-secondary', 'sending' => 'bg-info', 'in_transit' => 'bg-primary', 'arrived' => 'bg-warning text-dark', 'delivered' => 'bg-success', 'returned' => 'bg-danger'];
+    $canEdit = true;
 
     include __DIR__ . '/../includes/header.php';
     ?>
@@ -1271,7 +1303,7 @@ if ($action === 'view' && $orderId) {
                                     $digits = preg_replace('/\D/', '', $phone);
                                     if (strlen($digits) === 10 && $digits[0] === '0') $digits = '38' . $digits;
                                     elseif (strlen($digits) === 9) $digits = '380' . $digits;
-                                    elseif (!str_starts_with($digits, '380')) $digits = '380' . $digits;
+                                    elseif (strpos($digits, '380') !== 0) $digits = '380' . $digits;
                                     echo escape($phone);
                                     echo ' <a href="tg://resolve?phone=' . $digits . '" target="_blank" class="text-decoration-none" title="Telegram"><i class="bi bi-telegram" style="color:#0088cc;vertical-align:middle;"></i></a>';
                                     echo ' <a href="viber://chat?number=' . $digits . '" target="_blank" class="text-decoration-none" title="Viber"><svg width="16" height="16" viewBox="0 0 24 24" style="vertical-align:middle;"><rect width="24" height="24" rx="4" fill="#7360F2"/><path d="M17.4 14.1c-.4-.4-.9-.6-1.4-.6s-1 .2-1.4.6l-1.1 1.1c-1.7-.9-3.1-2.1-4.1-3.7l1.1-1.1c.4-.4.6-.9.6-1.4s-.2-1-.6-1.4l-1-1c-.4-.4-.9-.6-1.4-.6s-1 .2-1.4.6L5.5 8.9c-.7.7-1 1.6-1 2.6 0 3.3 2.5 7.5 7.5 7.5 1 0 1.9-.4 2.6-1l1.1-1.1c.4-.4.6-.9.6-1.4s-.2-1-.6-1.4l-1-1z" fill="white"/></svg></a>';
@@ -1313,6 +1345,19 @@ if ($action === 'view' && $orderId) {
                                     echo escape($order['delivery_address'] ?: '-');
                                 }
                             ?></div>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-4">
+                                <small class="text-muted">Номер ТТН</small>
+                                <div class="fw-bold"><?php echo $order['ttn_number'] ? escape($order['ttn_number']) : '-'; ?></div>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted">Статус доставки</small>
+                                <div><?php
+                                    $ds = $order['delivery_status'] ?: 'new';
+                                    echo '<span class="badge ' . ($deliveryStatusClasses[$ds] ?? 'bg-secondary') . '">' . ($deliveryStatusOptions[$ds] ?? $ds) . '</span>';
+                                ?></div>
+                            </div>
                         </div>
                         <div class="col-12">
                             <small class="text-muted">Примітки</small>
@@ -1463,6 +1508,8 @@ $statuses = $stmt->fetchAll();
 
 $statusOptions = ['pending' => 'Очікує', 'approved' => 'Підтверджено', 'processed' => 'В обробці', 'shipped' => 'Відправлено', 'delivered' => 'Доставлено', 'cancelled' => 'Скасовано'];
 $statusClasses = ['pending' => 'bg-warning text-dark', 'approved' => 'bg-info', 'processed' => 'bg-primary', 'shipped' => 'bg-secondary', 'delivered' => 'bg-success', 'cancelled' => 'bg-danger'];
+$deliveryStatusOptions = ['new' => 'Нове', 'sending' => 'Відправляється', 'in_transit' => 'В дорозі', 'arrived' => 'Прибуло у відділення', 'delivered' => 'Видано одержувачу', 'returned' => 'Повернення'];
+$deliveryStatusClasses = ['new' => 'bg-secondary', 'sending' => 'bg-info', 'in_transit' => 'bg-primary', 'arrived' => 'bg-warning text-dark', 'delivered' => 'bg-success', 'returned' => 'bg-danger'];
 
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -1497,6 +1544,8 @@ include __DIR__ . '/../includes/header.php';
                         <th>Телефон</th>
                         <th class="text-end">Сума</th>
                         <th>Статус</th>
+                        <th>ТТН</th>
+                        <th>Доставка</th>
                         <th>Оплата</th>
                         <th>Дата</th>
                         <th class="text-center">Дії</th>
@@ -1508,6 +1557,7 @@ include __DIR__ . '/../includes/header.php';
                         $pmtStmt->execute([$o['order_id']]);
                         $paid = (float)$pmtStmt->fetchColumn();
                         $debt = (float)$o['total'] - $paid;
+                        $canEditRow = true;
                     ?>
                     <tr>
                         <td><?php echo (int)$o['order_id']; ?></td>
@@ -1516,10 +1566,18 @@ include __DIR__ . '/../includes/header.php';
                         <td><?php echo escape($o['telephone'] ?: '-'); ?></td>
                         <td class="text-end fw-bold"><?php echo formatMoney($o['total']); ?></td>
                         <td><?php $sn = strtolower($o['status_name']); echo '<span class="badge ' . ($statusClasses[$sn] ?? 'bg-secondary') . '">' . ($statusOptions[$sn] ?? $sn) . '</span>'; ?></td>
+                        <td><?php echo $o['ttn_number'] ? '<code>' . escape($o['ttn_number']) . '</code>' : '-'; ?></td>
+                        <td><?php $ds = $o['delivery_status'] ?: 'new'; echo '<span class="badge ' . ($deliveryStatusClasses[$ds] ?? 'bg-secondary') . '">' . ($deliveryStatusOptions[$ds] ?? $ds) . '</span>'; ?></td>
                         <td><?php echo $debt <= 0 ? '<span class="badge bg-success">Оплачено</span>' : '<span class="badge bg-danger">Не оплачено</span>'; ?></td>
                         <td><?php echo $o['order_date'] ? formatDateShort($o['order_date']) : formatDate($o['date_added']); ?></td>
                         <td class="text-center">
-                            <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=view&id=<?php echo $o['order_id']; ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a>
+                            <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=view&id=<?php echo $o['order_id']; ?>" class="btn btn-sm btn-outline-primary" title="Переглянути"><i class="bi bi-eye"></i></a>
+                            <?php if ($canEditRow): ?>
+                            <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=edit&id=<?php echo $o['order_id']; ?>" class="btn btn-sm btn-outline-warning" title="Редагувати"><i class="bi bi-pencil"></i></a>
+                            <?php endif; ?>
+                            <?php if (isAdmin()): ?>
+                            <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=delete&id=<?php echo $o['order_id']; ?>" class="btn btn-sm btn-outline-danger" title="Видалити" onclick="return confirm('Видалити замовлення #<?php echo $o['order_id']; ?>?')"><i class="bi bi-trash"></i></a>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>

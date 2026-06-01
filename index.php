@@ -39,7 +39,7 @@ $stmt = $pdo->query("
 ");
 $customerDebt = (float)$stmt->fetch()['debt'];
 
-$stmt = $pdo->query("SELECT p.product_id, p.name, COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock FROM erp_products p LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id GROUP BY p.product_id HAVING stock <= 5 ORDER BY stock ASC LIMIT 10");
+$stmt = $pdo->query("SELECT p.product_id, p.name, COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock FROM erp_products p LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id GROUP BY p.product_id HAVING stock <= 5 ORDER BY stock ASC LIMIT 10");
 $lowStock = $stmt->fetchAll();
 
 $stmt = $pdo->query("SELECT o.order_id, o.customer_name, o.total, o.status_name, o.date_added FROM erp_orders o ORDER BY o.date_added DESC LIMIT 10");

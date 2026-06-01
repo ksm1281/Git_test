@@ -29,7 +29,7 @@ if (!defined('OC_DB_PREFIX')) define('OC_DB_PREFIX', 'oc_');
 
 // App Configuration
 define('APP_NAME', 'ERP/CRM');
-define('APP_VERSION', '1.7.0');
+define('APP_VERSION', '1.8.0');
 define('CURRENCY_SYMBOL', '&#8372;');
 define('CURRENCY_CODE', 'UAH');
 define('BASE_CURRENCY', 'UAH');
@@ -411,6 +411,12 @@ function initErpTables($pdo) {
     try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_office VARCHAR(255) DEFAULT NULL AFTER delivery_apartment"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_office VARCHAR(255) DEFAULT NULL AFTER delivery_apartment"); } catch (PDOException $e2) { /* ignore */ }
     }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS ttn_number VARCHAR(64) DEFAULT NULL AFTER delivery_office"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN ttn_number VARCHAR(64) DEFAULT NULL AFTER delivery_office"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(32) DEFAULT 'new' AFTER ttn_number"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_status VARCHAR(32) DEFAULT 'new' AFTER ttn_number"); } catch (PDOException $e2) { /* ignore */ }
+    }
     try { $pdo->exec("ALTER TABLE erp_products ADD COLUMN IF NOT EXISTS price_purchase DECIMAL(15,4) DEFAULT 0 AFTER price_retail"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_products ADD COLUMN price_purchase DECIMAL(15,4) DEFAULT 0 AFTER price_retail"); } catch (PDOException $e2) { /* ignore */ }
     }
@@ -671,8 +677,8 @@ function updateOutOfStockPrices($pdo) {
     $markups = getDefaultMarkups($pdo);
     $stmt = $pdo->query("
         SELECT p.product_id,
-            COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
-            COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock,
+            COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
+            COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock,
             COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'EUR') as purchase_currency
         FROM erp_products p
         LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id

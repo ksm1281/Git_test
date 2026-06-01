@@ -118,13 +118,23 @@ if ($action === 'edit_adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect(BASE_URL . '/modules/stock.php?action=corrections');
 }
 
-if ($action === 'delete_adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($action === 'delete_adjust' && $moveId && isManager()) {
+    $stmt = $pdo->prepare("DELETE FROM erp_stock_moves WHERE move_id = ? AND type = 'adjustment'");
+    $stmt->execute([$moveId]);
+    flashMessage('success', 'Корекцію видалено');
+    redirect(BASE_URL . '/modules/stock.php?action=corrections');
+}
+
+if ($action === 'batch_delete_adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!isManager()) { flashMessage('error', 'Недостатньо прав'); redirect(BASE_URL . '/modules/stock.php'); }
-    $moveId = (int)($_POST['move_id'] ?? 0);
-    if ($moveId) {
-        $stmt = $pdo->prepare("DELETE FROM erp_stock_moves WHERE move_id = ? AND type = 'adjustment'");
-        $stmt->execute([$moveId]);
-        flashMessage('success', 'Корекцію видалено');
+    $ids = $_POST['move_ids'] ?? [];
+    $ids = array_map('intval', $ids);
+    $ids = array_filter($ids);
+    if (count($ids) > 0) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $pdo->prepare("DELETE FROM erp_stock_moves WHERE move_id IN ($placeholders) AND type = 'adjustment'");
+        $stmt->execute(array_values($ids));
+        flashMessage('success', 'Видалено корекцій: ' . $stmt->rowCount());
     }
     redirect(BASE_URL . '/modules/stock.php?action=corrections');
 }
@@ -382,8 +392,8 @@ if ($action === 'pricing') {
     $pricingPagination = paginate($pricingTotal, $pricingPerPage, $pricingPage);
 
     $pricingSql = "SELECT p.*, pr.markup_wholesale, pr.markup_semi_wholesale, pr.markup_retail, pr.use_custom, pr.custom_price_wholesale, pr.custom_price_semi_wholesale, pr.custom_price_retail,
-        COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
-        COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock_qty,
+        COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
+        COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock_qty,
         COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'EUR') as purchase_currency
         FROM erp_products p
         LEFT JOIN erp_pricing_rules pr ON p.product_id = pr.product_id
@@ -718,6 +728,277 @@ if ($action === 'pricing') {
     <?php exit;
 }
 
+if ($action === 'import_gsheet' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManager()) {
+    $result = ['matched' => 0, 'errors' => [], 'rows' => 0];
+    if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
+        $result['errors'][] = 'Помилка завантаження файлу';
+    } else {
+        $fh = fopen($_FILES['csv_file']['tmp_name'], 'r');
+        if (!$fh) {
+            $result['errors'][] = 'Не вдалося відкрити файл';
+        } else {
+            $bom = fread($fh, 3);
+            if ($bom !== "\xEF\xBB\xBF") rewind($fh);
+            $raw = stream_get_contents($fh);
+            fclose($fh);
+            if (strlen($raw) === 0) {
+                $result['errors'][] = 'Порожній файл';
+            } else {
+                $lines = explode("\n", str_replace("\r\n", "\n", $raw));
+                $delimiter = substr_count($lines[0], "\t") >= substr_count($lines[0], ',') ? "\t" : ',';
+                $fh2 = fopen('php://temp', 'r+');
+                fwrite($fh2, $raw);
+                rewind($fh2);
+                $headers = fgetcsv($fh2, 0, $delimiter);
+                $subHeaders = fgetcsv($fh2, 0, $delimiter);
+                if (!$headers) {
+                    $result['errors'][] = 'Порожній файл';
+                } else {
+                    $headers = array_map('trim', $headers);
+                    $hLower = [];
+                    foreach ($headers as $i => $h) $hLower[mb_strtolower($h)] = $i;
+                    $shLower = [];
+                    if ($subHeaders) {
+                        $subHeaders = array_map('trim', $subHeaders);
+                        foreach ($subHeaders as $i => $h) $shLower[mb_strtolower($h)] = $i;
+                    }
+                    $idIdx = $hLower['id'] ?? null;
+                    $priceIdx = $shLower['округл'] ?? $hLower['закупка'] ?? $hLower['купка'] ?? null;
+                    $qtyIdx = $shLower['склад кол-во'] ?? $shLower['кол-во'] ?? $hLower['склад кол-во'] ?? $hLower['склад'] ?? $hLower['кол-во'] ?? $hLower['количество'] ?? null;
+                    if ($idIdx === null) {
+                        $result['errors'][] = 'Не знайдено колонку ID (шукаю заголовок "ID")';
+                    } else {
+                        $result['debug'] = "ID=$idIdx, Price=$priceIdx, Qty=$qtyIdx";
+                        $user = getUserData();
+                        $pdo->beginTransaction();
+                        try {
+                            $dataPos = ftell($fh2);
+                            $firstRow = fgetcsv($fh2, 0, $delimiter);
+                            if ($firstRow !== false) {
+                                $result['first_row_qty'] = ($qtyIdx !== null && isset($firstRow[$qtyIdx])) ? trim($firstRow[$qtyIdx]) : 'N/A';
+                                $result['first_row_id'] = ($idIdx !== null && isset($firstRow[$idIdx])) ? trim($firstRow[$idIdx]) : 'N/A';
+                                $result['first_row_count'] = count($firstRow);
+                                fseek($fh2, $dataPos);
+                            }
+                            while (($row = fgetcsv($fh2, 0, $delimiter)) !== false) {
+                                if (count($row) < $idIdx + 1) continue;
+                                $productId = (int)trim($row[$idIdx] ?? 0);
+                                if ($productId <= 0) continue;
+                                $qty = 0;
+                                if ($qtyIdx !== null && isset($row[$qtyIdx])) {
+                                    $qty = (float)str_replace(',', '.', trim($row[$qtyIdx]));
+                                }
+                                $costPrice = 0;
+                                if ($priceIdx !== null && isset($row[$priceIdx])) {
+                                    $costPrice = (float)str_replace(',', '.', str_replace(' ', '', trim($row[$priceIdx])));
+                                }
+                                if ($qty <= 0 && $costPrice <= 0) continue;
+                                $stmt = $pdo->prepare("SELECT product_id FROM erp_products WHERE product_id = ?");
+                                $stmt->execute([$productId]);
+                                if ($stmt->fetch()) {
+                                    if ($costPrice > 0) {
+                                        $pdo->prepare("UPDATE erp_products SET price_purchase = ? WHERE product_id = ?")->execute([$costPrice, $productId]);
+                                    }
+                                    if ($qty > 0) {
+                                        $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, notes, user_id) VALUES (?, 'in', ?, ?, ?, ?)")
+                                            ->execute([$productId, $qty, $costPrice ?: null, 'Початковий залишок (GSheets)', $user['user_id']]);
+                                    }
+                                    $result['matched']++;
+                                } else {
+                                    $result['errors'][] = "Товар з ID $productId не знайдено в ERP";
+                                }
+                                $result['rows']++;
+                            }
+                            $pdo->commit();
+                        } catch (Exception $e) {
+                            $pdo->rollBack();
+                            $result['errors'][] = 'Помилка: ' . $e->getMessage();
+                        }
+                    }
+                }
+                fclose($fh2);
+            }
+        }
+    }
+    $debug = $result['debug'] ?? '';
+    $firstRow = isset($result['first_row_qty']) ? " | 1-й рядок: ID={$result['first_row_id']}, Qty='{$result['first_row_qty']}', cols={$result['first_row_count']}" : '';
+    $errStr = $result['errors'] ? ' (' . implode('; ', array_slice($result['errors'], 0, 5)) . ')' : '';
+    if (count($result['errors']) > 0) {
+        flashMessage('warning', 'Імпорт: оброблено ' . $result['rows'] . ', оновлено ' . $result['matched'] . ', помилок: ' . count($result['errors']) . $errStr . ($debug ? " | $debug" : '') . $firstRow);
+    } else {
+        flashMessage('success', 'Імпорт завершено. Оновлено ' . $result['matched'] . ' товарів.' . ($debug ? " ($debug)" : '') . $firstRow);
+    }
+    redirect(BASE_URL . '/modules/stock.php?action=import_gsheet');
+}
+
+if ($action === 'import_gsheet') {
+    include __DIR__ . '/../includes/header.php';
+    ?>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-upload"></i> Імпорт з Google Таблиці</h4>
+        <div>
+            <a href="<?php echo BASE_URL; ?>/modules/stock.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> На склад</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">Завантажити CSV (експорт з Google Таблиці)</div>
+        <div class="card-body">
+            <form method="post" action="?action=import_gsheet" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <label class="form-label">Файл CSV (Tab-роздільник)</label>
+                    <input type="file" name="csv_file" class="form-control" accept=".csv,.txt,.tsv" required>
+                </div>
+                <div class="alert alert-info small">
+                    <strong>Очікуваний формат:</strong> перший рядок — заголовки, другий — підзаголовки (пропускаються).
+                    Роздільник визначається автоматично (кома або табуляція).
+                    Колонки за назвою заголовків:
+                    <code>ID</code> — співпадає з <code>erp_products.product_id</code>,
+                    <code>Закупка</code> — ціна закупівлі (записується в <code>price_purchase</code>),
+                    <code>Склад кол-во</code> — кількість (створюється adjustment-рух).
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-upload"></i> Імпортувати</button>
+            </form>
+        </div>
+    </div>
+    <?php
+    include __DIR__ . '/../includes/footer.php';
+    exit;
+}
+
+if ($action === 'import_initial' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManager()) {
+    $result = ['matched' => 0, 'errors' => [], 'rows' => 0];
+    if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
+        $result['errors'][] = 'Помилка завантаження файлу';
+    } else {
+        $fh = fopen($_FILES['csv_file']['tmp_name'], 'r');
+        if (!$fh) {
+            $result['errors'][] = 'Не вдалося відкрити файл';
+        } else {
+            $bom = fread($fh, 3);
+            if ($bom !== "\xEF\xBB\xBF") rewind($fh);
+            $firstLine = fgets($fh);
+            if ($firstLine === false) {
+                $result['errors'][] = 'Порожній файл';
+            } else {
+                $commaCount = substr_count($firstLine, ',');
+                $semicolonCount = substr_count($firstLine, ';');
+                $tabCount = substr_count($firstLine, "\t");
+                $delimiter = $semicolonCount >= $commaCount && $semicolonCount >= $tabCount ? ';' : ($tabCount >= $commaCount ? "\t" : ',');
+                rewind($fh);
+                $bom2 = fread($fh, 3);
+                if ($bom2 !== "\xEF\xBB\xBF") rewind($fh);
+                $headers = fgetcsv($fh, 0, $delimiter);
+                if (!$headers) {
+                    $result['errors'][] = 'Порожній файл';
+                } else {
+                    $headers = array_map('trim', $headers);
+                    $hLower = [];
+                    foreach ($headers as $i => $h) $hLower[mb_strtolower($h)] = $i;
+                    $skuIdx = $hLower['артикул'] ?? $hLower['sku'] ?? $hLower['код'] ?? $hLower['code'] ?? null;
+                    $modelIdx = $hLower['модель'] ?? $hLower['model'] ?? null;
+                    $nameIdx = $hLower['назва'] ?? $hLower['name'] ?? $hLower['товар'] ?? null;
+                    $qtyIdx = $hLower['кількість'] ?? $hLower['quantity'] ?? $hLower['к-сть'] ?? $hLower['количество'] ?? null;
+                    $priceIdx = $hLower['ціна'] ?? $hLower['цена'] ?? $hLower['price'] ?? $hLower['закупівля'] ?? $hLower['cost_price'] ?? $hLower['собівартість'] ?? null;
+                    if ($qtyIdx === null) {
+                        $result['errors'][] = 'Не знайдено колонку з кількістю (кількість/quantity/к-сть)';
+                    } elseif ($skuIdx === null && $modelIdx === null && $nameIdx === null) {
+                        $result['errors'][] = 'Не знайдено колонку для пошуку товару (артикул/sku/модель/назва)';
+                    } else {
+                        $user = getUserData();
+                        $pdo->beginTransaction();
+                        try {
+                            $products = $pdo->query("SELECT product_id, sku, model, name FROM erp_products")->fetchAll();
+                            $prodBySku = []; $prodByModel = []; $prodByName = [];
+                            foreach ($products as $p) {
+                                if ($p['sku']) $prodBySku[mb_strtolower(trim($p['sku']))] = $p;
+                                if ($p['model']) $prodByModel[mb_strtolower(trim($p['model']))] = $p;
+                                $prodByName[mb_strtolower(trim($p['name']))] = $p;
+                            }
+                            $matchedCount = 0;
+                            while (($row = fgetcsv($fh, 0, $delimiter)) !== false) {
+                                $result['rows']++;
+                                if (count($row) === 1 && trim($row[0]) === '') continue;
+                                $qty = (float)trim($row[$qtyIdx] ?? 0);
+                                if ($qty == 0) continue;
+                                $costPrice = $priceIdx !== null ? (float)str_replace([' ', ','], ['', '.'], trim($row[$priceIdx] ?? '0')) : 0;
+                                $product = null;
+                                if ($skuIdx !== null) {
+                                    $sku = mb_strtolower(trim($row[$skuIdx] ?? ''));
+                                    if ($sku && isset($prodBySku[$sku])) $product = $prodBySku[$sku];
+                                }
+                                if (!$product && $modelIdx !== null) {
+                                    $mod = mb_strtolower(trim($row[$modelIdx] ?? ''));
+                                    if ($mod && isset($prodByModel[$mod])) $product = $prodByModel[$mod];
+                                }
+                                if (!$product && $nameIdx !== null) {
+                                    $nm = mb_strtolower(trim($row[$nameIdx] ?? ''));
+                                    if ($nm && isset($prodByName[$nm])) $product = $prodByName[$nm];
+                                }
+                                if ($product) {
+                                    $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, notes, user_id) VALUES (?, 'adjustment', ?, ?, ?, ?)");
+                                    $stmt->execute([$product['product_id'], $qty, $costPrice ?: null, 'Початковий залишок (імпорт)', $user['user_id']]);
+                                    $matchedCount++;
+                                }
+                            }
+                            $pdo->commit();
+                            $result['matched'] = $matchedCount;
+                        } catch (Exception $e) {
+                            $pdo->rollBack();
+                            $result['errors'][] = 'Помилка: ' . $e->getMessage();
+                        }
+                    }
+                }
+            }
+            fclose($fh);
+        }
+    }
+    if (count($result['errors']) > 0) {
+        $msg = 'Імпорт: знайдено ' . $result['matched'] . ', помилок: ' . implode('; ', $result['errors']);
+        flashMessage('error', $msg);
+    } else {
+        flashMessage('success', 'Імпорт завершено. Додано корекцій для ' . $result['matched'] . ' товарів із ' . $result['rows'] . ' рядків.');
+    }
+    redirect(BASE_URL . '/modules/stock.php?action=import_initial');
+}
+
+if ($action === 'import_initial') {
+    include __DIR__ . '/../includes/header.php';
+    ?>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-upload"></i> Імпорт початкових залишків</h4>
+        <div>
+            <a href="<?php echo BASE_URL; ?>/modules/stock.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> На склад</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">Завантажити CSV</div>
+        <div class="card-body">
+            <form method="post" action="?action=import_initial" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <label class="form-label">Файл CSV</label>
+                    <input type="file" name="csv_file" class="form-control" accept=".csv,.txt" required>
+                </div>
+                <p class="text-muted small">
+                    Колонки: <code>артикул/sku/код</code> (для пошуку товару) або <code>модель</code> або <code>назва</code>,
+                    <code>кількість</code> (обов'язково, позитивна — додати на склад),
+                    <code>ціна</code> (опціонально, закупівельна).
+                    Роздільник визначається автоматично (<code>;</code> або <code>,</code>).
+                    Перший рядок — заголовки.
+                </p>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-upload"></i> Імпортувати</button>
+            </form>
+            <hr>
+            <p class="small mb-0">
+                <i class="bi bi-arrow-right"></i> Для формату Google Таблиці з 2-рядковими заголовками — 
+                <a href="?action=import_gsheet">спеціальний імпорт</a>
+            </p>
+        </div>
+    </div>
+    <?php
+    include __DIR__ . '/../includes/footer.php';
+    exit;
+}
+
 if ($action === 'corrections') {
     $corrPage = max(1, (int)($_GET['corr_page'] ?? 1));
     $corrPerPage = 50;
@@ -728,7 +1009,7 @@ if ($action === 'corrections') {
         FROM erp_stock_moves m
         LEFT JOIN erp_products p ON m.product_id = p.product_id
         WHERE m.type = 'adjustment'
-        ORDER BY m.date_added DESC
+        ORDER BY CASE WHEN m.quantity = 0 THEN 1 ELSE 0 END, m.date_added DESC
         LIMIT ? OFFSET ?
     ");
     $corrections->bindValue(1, $corrPagination['per_page'], PDO::PARAM_INT);
@@ -745,16 +1026,19 @@ if ($action === 'corrections') {
         <div>
             <a href="<?php echo BASE_URL; ?>/modules/stock.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> На склад</a>
             <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#adjustModal"><i class="bi bi-plus-lg"></i> Нова корекція</button>
+            <a href="<?php echo BASE_URL; ?>/modules/stock.php?action=import_initial" class="btn btn-sm btn-info"><i class="bi bi-upload"></i> Імпорт CSV</a>
         </div>
     </div>
     <div class="card">
         <div class="card-header">Історія корекцій</div>
         <div class="card-body p-0">
             <?php if (count($corrections) > 0): ?>
+            <form method="post" action="?action=batch_delete_adjust" id="batchCorrForm" onsubmit="return confirm('Видалити вибрані корекції?')">
             <div class="table-container">
                 <table class="table table-hover mb-0">
                     <thead>
                         <tr>
+                            <th style="width:40px;"><input type="checkbox" id="selectAll" onchange="document.querySelectorAll('.corr-check').forEach(c=>c.checked=this.checked)"></th>
                             <th>#</th>
                             <th>Товар</th>
                             <th>Кількість</th>
@@ -767,6 +1051,7 @@ if ($action === 'corrections') {
                     <tbody>
                         <?php foreach ($corrections as $c): ?>
                         <tr>
+                            <td><input type="checkbox" name="move_ids[]" value="<?php echo (int)$c['move_id']; ?>" class="corr-check"></td>
                             <td><?php echo (int)$c['move_id']; ?></td>
                             <td>
                                 <a href="<?php echo BASE_URL; ?>/modules/stock.php?action=moves&id=<?php echo (int)$c['product_id']; ?>" class="text-decoration-none">
@@ -781,16 +1066,17 @@ if ($action === 'corrections') {
                                 <button class="btn btn-sm btn-outline-primary" onclick="editCorrection(<?php echo htmlspecialchars(json_encode($c)); ?>)" title="Редагувати">
                                     <i class="bi bi-pencil"></i>
                                 </button>
-                                <form method="post" action="?action=delete_adjust" class="d-inline" onsubmit="return confirm('Видалити корекцію #<?php echo (int)$c['move_id']; ?>?')">
-                                    <input type="hidden" name="move_id" value="<?php echo (int)$c['move_id']; ?>">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Видалити"><i class="bi bi-trash"></i></button>
-                                </form>
+                                <a href="?action=delete_adjust&move_id=<?php echo (int)$c['move_id']; ?>" class="btn btn-sm btn-outline-danger" title="Видалити" onclick="return confirm('Видалити корекцію #<?php echo (int)$c['move_id']; ?>?')"><i class="bi bi-trash"></i></a>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
+            <div class="card-footer d-flex gap-2">
+                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Видалити вибрані</button>
+            </div>
+            </form>
             <?php else: ?>
             <div class="text-center py-4 text-muted"><p class="mb-0">Немає корекцій</p></div>
             <?php endif; ?>
@@ -923,13 +1209,13 @@ $total = $stmt->fetchColumn();
 
 $pagination = paginate($total, $perPage, $page);
 $sql = "SELECT p.*,
-    COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock_qty
+    COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock_qty
     FROM erp_products p
     LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id
     $joinCategory
     $where
     GROUP BY p.product_id
-    ORDER BY p.name ASC
+    ORDER BY SUM(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END) = 0, p.name ASC
     LIMIT {$pagination['per_page']} OFFSET {$pagination['offset']}";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($categoryId ? array_merge([$categoryId], $params) : $params);
@@ -983,6 +1269,7 @@ include __DIR__ . '/../includes/header.php';
         <ul class="nav nav-tabs card-header-tabs">
             <li class="nav-item"><a class="nav-link <?php echo $action === 'list' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/stock.php"><i class="bi bi-box"></i> Товари</a></li>
             <li class="nav-item"><a class="nav-link <?php echo $action === 'corrections' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/stock.php?action=corrections"><i class="bi bi-sliders"></i> Корекція</a></li>
+            <li class="nav-item"><a class="nav-link <?php echo $action === 'import_initial' || $action === 'import_gsheet' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/stock.php?action=import_initial"><i class="bi bi-upload"></i> Імпорт</a></li>
             <li class="nav-item"><a class="nav-link <?php echo $action === 'pricing' ? 'active' : ''; ?>" href="<?php echo BASE_URL; ?>/modules/stock.php?action=pricing"><i class="bi bi-currency-exchange"></i> Ціни</a></li>
         </ul>
     </div>
