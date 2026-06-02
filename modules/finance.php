@@ -22,10 +22,15 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManager()
     $category = trim($_POST['category'] ?? '');
     $date = $_POST['date'] ?? date('Y-m-d');
     $description = trim($_POST['description'] ?? '');
+    $invoiceId = (int)($_POST['invoice_id'] ?? 0);
 
     if ($accountId && $amount > 0) {
-        $stmt = $pdo->prepare("INSERT INTO erp_transactions (account_id, type, amount, method, category, date, description, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$accountId, $type, $amount, $method, $category, $date, $description, $user['user_id']]);
+        if ($type === 'out' && $invoiceId > 0) {
+            $stmt = $pdo->prepare("INSERT INTO erp_payments (invoice_id, amount, method, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$invoiceId, $amount, $method, $date, $description, $user['user_id']]);
+        }
+        $stmt = $pdo->prepare("INSERT INTO erp_transactions (account_id, type, amount, method, category, date, description, reference_type, reference_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$accountId, $type, $amount, $method, $category, $date, $description, $invoiceId > 0 ? 'invoice' : null, $invoiceId > 0 ? $invoiceId : null, $user['user_id']]);
         flashMessage('success', 'Транзакцію додано');
     } else {
         flashMessage('error', 'Заповніть обов\'язкові поля');
@@ -99,6 +104,13 @@ $stmt = $pdo->query("SELECT s.supplier_id, s.name,
     COALESCE((SELECT SUM(p.amount) FROM erp_payments p JOIN erp_incoming_invoices i ON p.invoice_id = i.invoice_id WHERE i.supplier_id = s.supplier_id), 0) as payment_total
     FROM erp_suppliers s WHERE s.status = 1 ORDER BY s.name ASC");
 $suppliersDebt = $stmt->fetchAll();
+
+$stmt = $pdo->query("SELECT i.invoice_id, i.invoice_number, s.name as supplier_name, (i.total_local - COALESCE((SELECT SUM(p.amount) FROM erp_payments p WHERE p.invoice_id = i.invoice_id), 0)) as debt_remaining
+    FROM erp_incoming_invoices i LEFT JOIN erp_suppliers s ON i.supplier_id = s.supplier_id
+    WHERE i.status IN ('draft', 'confirmed')
+    HAVING debt_remaining > 0.01
+    ORDER BY i.date_added DESC");
+$invoicesWithDebt = $stmt->fetchAll();
 
 $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок', 'transfer' => 'Переказ'];
 $typeLabels = ['in' => 'Надходження', 'out' => 'Витрата', 'transfer' => 'Переказ'];
@@ -226,13 +238,21 @@ include __DIR__ . '/../includes/header.php';
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($transactions as $t): ?>
+                    <?php foreach ($transactions as $t):
+                            $refLink = '';
+                            if ($t['reference_type'] === 'invoice' && $t['reference_id']) {
+                                $stmt2 = $pdo->prepare("SELECT invoice_number FROM erp_incoming_invoices WHERE invoice_id = ?");
+                                $stmt2->execute([$t['reference_id']]);
+                                $invNum = $stmt2->fetchColumn();
+                                $refLink = ' <a href="' . BASE_URL . '/modules/incoming.php?action=view&id=' . $t['reference_id'] . '" class="text-decoration-none"><i class="bi bi-box-arrow-up-right"></i> #' . escape($invNum ?: $t['reference_id']) . '</a>';
+                            }
+                            ?>
                     <tr>
                         <td><?php echo formatDateShort($t['date']); ?></td>
                         <td><?php echo escape($t['account_name']); ?></td>
                         <td><?php echo $methodLabels[$t['method']] ?? $t['method']; ?></td>
                         <td><?php echo escape($t['category'] ?: '-'); ?></td>
-                        <td><?php echo escape($t['description'] ?: '-'); ?></td>
+                        <td><?php echo escape($t['description'] ?: '-'); ?> <?php echo $refLink; ?></td>
                         <td class="text-end fw-bold <?php echo $t['type'] === 'in' ? 'text-success' : 'text-danger'; ?>">
                             <?php echo $t['type'] === 'in' ? '+' : '-'; ?><?php echo formatMoney($t['amount']); ?>
                         </td>
@@ -366,6 +386,15 @@ include __DIR__ . '/../includes/header.php';
                     <div class="mb-3">
                         <label class="form-label">Дата</label>
                         <input type="date" name="date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Прив'язати до накладної (необов'язково)</label>
+                        <select name="invoice_id" class="form-select">
+                            <option value="">— Без накладної —</option>
+                            <?php foreach ($invoicesWithDebt as $inv): ?>
+                            <option value="<?php echo $inv['invoice_id']; ?>">#<?php echo escape($inv['invoice_number']); ?> — <?php echo escape($inv['supplier_name']); ?> (борг: <?php echo formatMoney($inv['debt_remaining']); ?>)</option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Опис</label>

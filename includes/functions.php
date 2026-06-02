@@ -4,6 +4,7 @@ function getActiveNav($page) {
 }
 
 function getStatusBadge($status) {
+    $status = strtolower($status);
     $classes = [
         'pending' => 'bg-warning text-dark',
         'approved' => 'bg-info',
@@ -13,8 +14,18 @@ function getStatusBadge($status) {
         'confirmed' => 'bg-success',
         'cancelled' => 'bg-danger',
     ];
+    $labels = [
+        'pending' => 'Очікує',
+        'approved' => 'Підтверджено',
+        'rejected' => 'Відхилено',
+        'processed' => 'В обробці',
+        'draft' => 'Чернетка',
+        'confirmed' => 'Підтверджено',
+        'cancelled' => 'Скасовано',
+    ];
     $class = $classes[$status] ?? 'bg-secondary';
-    return '<span class="badge ' . $class . '">' . escape(ucfirst($status)) . '</span>';
+    $label = $labels[$status] ?? $status;
+    return '<span class="badge ' . $class . '">' . escape($label) . '</span>';
 }
 
 function getStockTypeLabel($type) {

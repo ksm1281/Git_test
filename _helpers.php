@@ -15,6 +15,8 @@ function getStatusBadge($status) {
         'processed' => 'bg-primary',
         'shipped' => 'bg-secondary',
         'delivered' => 'bg-success',
+        'draft' => 'bg-secondary',
+        'confirmed' => 'bg-success',
         'cancelled' => 'bg-danger',
     ];
     $labels = [
@@ -23,6 +25,8 @@ function getStatusBadge($status) {
         'processed' => 'В обробці',
         'shipped' => 'Відправлено',
         'delivered' => 'Доставлено',
+        'draft' => 'Чернетка',
+        'confirmed' => 'Підтверджено',
         'cancelled' => 'Скасовано',
     ];
     $class = $classes[$status] ?? 'bg-secondary';

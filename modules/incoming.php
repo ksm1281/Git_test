@@ -286,10 +286,20 @@ if ($action === 'pay' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId && 
     $method = $_POST['method'] ?? 'cash';
     $date = $_POST['date'] ?? date('Y-m-d');
     $notes = trim($_POST['notes'] ?? '');
+    $accountId = (int)($_POST['account_id'] ?? 0);
 
-    if ($amount > 0 && in_array($method, ['cash', 'card', 'fop', 'invoice'])) {
+    if ($amount > 0 && in_array($method, ['cash', 'card', 'fop', 'invoice', 'transfer'])) {
         $stmt = $pdo->prepare("INSERT INTO erp_payments (invoice_id, amount, method, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$invoiceId, $amount, $method, $date, $notes, $user['user_id']]);
+
+        if ($accountId > 0) {
+            $stmt = $pdo->prepare("SELECT invoice_number FROM erp_incoming_invoices WHERE invoice_id = ?");
+            $stmt->execute([$invoiceId]);
+            $invNum = $stmt->fetchColumn();
+            $stmt = $pdo->prepare("INSERT INTO erp_transactions (account_id, type, amount, method, category, date, description, reference_type, reference_id, user_id) VALUES (?, 'out', ?, ?, 'Закупівля', ?, ?, 'invoice', ?, ?)");
+            $stmt->execute([$accountId, $amount, $method, $date, 'Оплата накладної #' . ($invNum ?: $invoiceId), $invoiceId, $user['user_id']]);
+        }
+
         flashMessage('success', 'Платіж на ' . formatMoney($amount) . ' зареєстровано');
     } else {
         flashMessage('error', 'Некоректна сума або метод оплати');
@@ -329,6 +339,10 @@ if ($action === 'view' && $invoiceId) {
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=edit&id=<?php echo $invoiceId; ?>" class="btn btn-warning btn-sm"><i class="bi bi-pencil"></i> Редагувати</a>
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=confirm&id=<?php echo $invoiceId; ?>" class="btn btn-success btn-sm" onclick="return confirm('Підтвердити накладну?')"><i class="bi bi-check-lg"></i> Підтвердити</a>
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=cancel&id=<?php echo $invoiceId; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Скасувати накладну?')"><i class="bi bi-x-lg"></i> Скасувати</a>
+            <?php elseif ($invoice['status'] === 'confirmed'): ?>
+            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=cancel&id=<?php echo $invoiceId; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Скасувати накладну?')"><i class="bi bi-x-lg"></i> Скасувати</a>
+            <?php elseif ($invoice['status'] === 'cancelled'): ?>
+            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=confirm&id=<?php echo $invoiceId; ?>" class="btn btn-success btn-sm" onclick="return confirm('Відновити накладну?')"><i class="bi bi-check-lg"></i> Відновити</a>
             <?php endif; ?>
         </div>
     </div>
@@ -372,9 +386,9 @@ if ($action === 'view' && $invoiceId) {
                         <tr>
                             <td><?php echo escape($item['product_name'] ?: 'ID: ' . $item['product_id']); ?></td>
                             <td><?php echo (float)$item['quantity']; ?></td>
-                            <td class="text-end"><?php echo formatMoneyForeign($item['price_foreign']); ?></td>
+                            <td class="text-end"><?php echo formatMoneyForeign($item['price_foreign'], $invoice['currency']); ?></td>
                             <td class="text-end"><?php echo formatMoney($item['price_local']); ?></td>
-                            <td class="text-end"><?php echo formatMoneyForeign($item['total_foreign']); ?></td>
+                            <td class="text-end"><?php echo formatMoneyForeign($item['total_foreign'], $invoice['currency']); ?></td>
                             <td class="text-end"><?php echo formatMoney($item['total_local']); ?></td>
                         </tr>
                         <?php endforeach; ?>
@@ -385,7 +399,7 @@ if ($action === 'view' && $invoiceId) {
                             <td></td>
                             <td></td>
                             <td></td>
-                            <td class="text-end"><?php echo formatMoneyForeign($invoice['total_foreign']); ?></td>
+                            <td class="text-end"><?php echo formatMoneyForeign($invoice['total_foreign'], $invoice['currency']); ?></td>
                             <td class="text-end"><?php echo formatMoney($invoice['total_local']); ?></td>
                         </tr>
                     </tfoot>
@@ -401,7 +415,13 @@ if ($action === 'view' && $invoiceId) {
     $totalPaid = 0;
     foreach ($payments as $pmt) { $totalPaid += (float)$pmt['amount']; }
     $balance = (float)$invoice['total_local'] - $totalPaid;
-    $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок'];
+    $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок', 'transfer' => 'Переказ'];
+
+    $accounts = $pdo->query("SELECT * FROM erp_cash_accounts WHERE status = 1 ORDER BY name ASC")->fetchAll();
+
+    $stmt = $pdo->prepare("SELECT t.*, a.name as account_name FROM erp_transactions t LEFT JOIN erp_cash_accounts a ON t.account_id = a.account_id WHERE t.reference_type = 'invoice' AND t.reference_id = ? ORDER BY t.date_added ASC");
+    $stmt->execute([$invoiceId]);
+    $invoiceTxns = $stmt->fetchAll();
     ?>
     <div class="row mt-3 g-3">
         <div class="col-md-6">
@@ -433,6 +453,27 @@ if ($action === 'view' && $invoiceId) {
                     <?php endif; ?>
                 </div>
             </div>
+            <?php if (count($invoiceTxns) > 0): ?>
+            <div class="card mt-2">
+                <div class="card-header">Транзакції по рахунках</div>
+                <div class="card-body p-0">
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr><th>Дата</th><th>Рахунок</th><th class="text-end">Сума</th></tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($invoiceTxns as $txn): ?>
+                            <tr>
+                                <td><?php echo formatDateShort($txn['date']); ?></td>
+                                <td><?php echo escape($txn['account_name'] ?: '-'); ?></td>
+                                <td class="text-end fw-bold text-danger">-<?php echo formatMoney($txn['amount']); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <?php endif; ?>
         </div>
         <div class="col-md-6">
             <div class="card">
@@ -451,11 +492,21 @@ if ($action === 'view' && $invoiceId) {
                                     <option value="card">Картка</option>
                                     <option value="fop">ФОП</option>
                                     <option value="invoice">Рахунок</option>
+                                    <option value="transfer">Переказ</option>
                                 </select>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Дата</label>
                                 <input type="date" name="date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Рахунок (каса/банк)</label>
+                                <select name="account_id" class="form-select">
+                                    <option value="">— Без рахунку —</option>
+                                    <?php foreach ($accounts as $acc): ?>
+                                    <option value="<?php echo $acc['account_id']; ?>"><?php echo escape($acc['name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
                             </div>
                             <div class="col-12">
                                 <label class="form-label">Примітка</label>
@@ -779,9 +830,7 @@ include __DIR__ . '/../includes/header.php';
                         <td><?php echo getStatusBadge($inv['status']); ?></td>
                         <td class="text-center">
                             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=view&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a>
-                            <?php if ($inv['status'] === 'draft'): ?>
-                            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=edit&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-warning"><i class="bi bi-pencil"></i></a>
-                            <?php endif; ?>
+                            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=view&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-warning"><i class="bi bi-pencil"></i></a>
                         </td>
                     </tr>
                     <?php endforeach; ?>
