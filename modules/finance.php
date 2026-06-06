@@ -4,6 +4,7 @@ require_once __DIR__ . '/../_helpers.php';
 requireLogin();
 
 $action = $_GET['action'] ?? 'list';
+$tab = $_GET['tab'] ?? 'overview';
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 30;
 $accountFilter = (int)($_GET['account'] ?? 0);
@@ -38,6 +39,130 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManager()
     redirect(BASE_URL . '/modules/finance.php');
 }
 
+// === PAYMENTS TAB HANDLERS ===
+if ($action === 'create_payment' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManager()) {
+    $pType = $_POST['p_type'] ?? 'supplier';
+    $invoiceId = $pType === 'supplier' ? (int)($_POST['invoice_id'] ?? 0) : 0;
+    $orderId = $pType === 'customer' ? (int)($_POST['order_id'] ?? 0) : 0;
+    $amount = (float)($_POST['amount'] ?? 0);
+    $method = $_POST['method'] ?? 'cash';
+    $date = $_POST['date'] ?? date('Y-m-d');
+    $notes = trim($_POST['notes'] ?? '');
+
+    if ($amount > 0) {
+        $stmt = $pdo->prepare("INSERT INTO erp_payments (invoice_id, order_id, amount, method, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$invoiceId ?: null, $orderId ?: null, $amount, $method, $date, $notes, $user['user_id']]);
+        flashMessage('success', 'Платіж додано');
+    } else {
+        flashMessage('error', 'Заповніть обов\'язкові поля');
+    }
+    redirect(BASE_URL . '/modules/finance.php?tab=payments');
+}
+
+if ($action === 'update_payment' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManager()) {
+    $paymentId = (int)($_POST['payment_id'] ?? 0);
+    $pType = $_POST['p_type'] ?? 'supplier';
+    $invoiceId = $pType === 'supplier' ? (int)($_POST['invoice_id'] ?? 0) : 0;
+    $orderId = $pType === 'customer' ? (int)($_POST['order_id'] ?? 0) : 0;
+    $amount = (float)($_POST['amount'] ?? 0);
+    $method = $_POST['method'] ?? 'cash';
+    $date = $_POST['date'] ?? date('Y-m-d');
+    $notes = trim($_POST['notes'] ?? '');
+
+    if ($paymentId && $amount > 0) {
+        if ($pType === 'supplier') {
+            $stmt = $pdo->prepare("UPDATE erp_payments SET invoice_id=?, order_id=NULL, amount=?, method=?, date=?, notes=? WHERE payment_id=?");
+        } else {
+            $stmt = $pdo->prepare("UPDATE erp_payments SET invoice_id=NULL, order_id=?, amount=?, method=?, date=?, notes=? WHERE payment_id=?");
+        }
+        $stmt->execute([$pType === 'supplier' ? ($invoiceId ?: null) : ($orderId ?: null), $amount, $method, $date, $notes, $paymentId]);
+        flashMessage('success', 'Платіж оновлено');
+    } else {
+        flashMessage('error', 'Некоректні дані');
+    }
+    redirect(BASE_URL . '/modules/finance.php?tab=payments');
+}
+
+if ($action === 'delete_payment' && isManager()) {
+    $paymentId = (int)($_GET['payment_id'] ?? 0);
+    if ($paymentId) {
+        $pdo->prepare("DELETE FROM erp_payments WHERE payment_id = ?")->execute([$paymentId]);
+        flashMessage('success', 'Платіж видалено');
+    }
+    redirect(BASE_URL . '/modules/finance.php?tab=payments');
+}
+
+// Payments listing data
+$pType = $_GET['p_type'] ?? '';
+$pSupplierFilter = (int)($_GET['supplier'] ?? 0);
+$pDateFrom = $_GET['p_date_from'] ?? '';
+$pDateTo = $_GET['p_date_to'] ?? '';
+
+$pWhere = [];
+$pParams = [];
+
+if ($pType === 'supplier') {
+    $pWhere[] = "p.invoice_id IS NOT NULL";
+} elseif ($pType === 'customer') {
+    $pWhere[] = "p.order_id IS NOT NULL";
+}
+if ($pSupplierFilter) {
+    $pWhere[] = "i.supplier_id = ?";
+    $pParams[] = $pSupplierFilter;
+}
+if ($pDateFrom) {
+    $pWhere[] = "p.date >= ?";
+    $pParams[] = $pDateFrom;
+}
+if ($pDateTo) {
+    $pWhere[] = "p.date <= ?";
+    $pParams[] = $pDateTo;
+}
+
+$pWhereClause = $pWhere ? 'WHERE ' . implode(' AND ', $pWhere) : '';
+
+$pCountSql = "SELECT COUNT(*) FROM erp_payments p
+    LEFT JOIN erp_incoming_invoices i ON p.invoice_id = i.invoice_id
+    LEFT JOIN erp_orders o ON p.order_id = o.order_id
+    $pWhereClause";
+$stmt = $pdo->prepare($pCountSql);
+$stmt->execute($pParams);
+$pTotal = $stmt->fetchColumn();
+$pPagination = paginate($pTotal, $perPage, $page);
+
+$pSql = "SELECT p.*,
+    i.invoice_number, i.status as invoice_status, s.name as supplier_name,
+    o.customer_name as order_customer, o.total as order_total
+    FROM erp_payments p
+    LEFT JOIN erp_incoming_invoices i ON p.invoice_id = i.invoice_id
+    LEFT JOIN erp_suppliers s ON i.supplier_id = s.supplier_id
+    LEFT JOIN erp_orders o ON p.order_id = o.order_id
+    $pWhereClause
+    ORDER BY p.date DESC, p.date_added DESC
+    LIMIT {$pPagination['per_page']} OFFSET {$pPagination['offset']}";
+$stmt = $pdo->prepare($pSql);
+$stmt->execute($pParams);
+$payments = $stmt->fetchAll();
+
+$allSuppliers = $pdo->query("SELECT * FROM erp_suppliers WHERE status = 1 ORDER BY name ASC")->fetchAll();
+
+$stmt = $pdo->query("SELECT i.invoice_id, i.invoice_number, s.name as supplier_name, s.supplier_id,
+    (i.total_local - COALESCE((SELECT SUM(p.amount) FROM erp_payments p WHERE p.invoice_id = i.invoice_id), 0)) as debt_remaining
+    FROM erp_incoming_invoices i
+    LEFT JOIN erp_suppliers s ON i.supplier_id = s.supplier_id
+    WHERE i.status IN ('draft', 'confirmed')
+    HAVING debt_remaining > 0.01
+    ORDER BY s.name ASC, i.date_added DESC");
+$allInvoicesWithDebt = $stmt->fetchAll();
+
+$stmt = $pdo->query("SELECT order_id, customer_name, total,
+    (total - COALESCE((SELECT SUM(p.amount) FROM erp_payments p WHERE p.order_id = o.order_id), 0)) as debt_remaining
+    FROM erp_orders o
+    HAVING debt_remaining > 0.01
+    ORDER BY customer_name ASC, order_id DESC");
+$ordersWithDebt = $stmt->fetchAll();
+
+// === OVERVIEW TAB (original code) ===
 $where = [];
 $params = [];
 
@@ -101,7 +226,7 @@ $customerDebt = (float)$stmt->fetch()['debt'];
 
 $stmt = $pdo->query("SELECT s.supplier_id, s.name,
     COALESCE((SELECT SUM(i.total_local) FROM erp_incoming_invoices i WHERE i.supplier_id = s.supplier_id AND i.status IN ('draft', 'confirmed')), 0) as invoice_total,
-    COALESCE((SELECT SUM(p.amount) FROM erp_payments p JOIN erp_incoming_invoices i ON p.invoice_id = i.invoice_id WHERE i.supplier_id = s.supplier_id), 0) as payment_total
+    COALESCE((SELECT SUM(p.amount) FROM erp_payments p JOIN erp_incoming_invoices i ON p.invoice_id = i.invoice_id WHERE i.supplier_id = s.supplier_id AND i.status IN ('draft', 'confirmed')), 0) as payment_total
     FROM erp_suppliers s WHERE s.status = 1 ORDER BY s.name ASC");
 $suppliersDebt = $stmt->fetchAll();
 
@@ -117,6 +242,13 @@ $typeLabels = ['in' => 'Надходження', 'out' => 'Витрата', 'tra
 
 include __DIR__ . '/../includes/header.php';
 ?>
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item"><a class="nav-link <?php echo $tab === 'overview' ? 'active' : ''; ?>" href="?tab=overview"><i class="bi bi-wallet2"></i> Огляд</a></li>
+    <li class="nav-item"><a class="nav-link <?php echo $tab === 'payments' ? 'active' : ''; ?>" href="?tab=payments"><i class="bi bi-cash-stack"></i> Оплати</a></li>
+</ul>
+
+<?php if ($tab === 'overview'): ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-wallet2"></i> Фінанси</h4>
@@ -148,7 +280,7 @@ include __DIR__ . '/../includes/header.php';
     <div class="col-md-6">
         <div class="card border-danger">
             <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center py-2">
-                <span><i class="bi bi-truck"></i> Борг постачальникам</span>
+                <span><i class="bi bi-truck"></i> Постачальники</span>
                 <a href="<?php echo BASE_URL; ?>/modules/suppliers.php" class="btn btn-sm btn-outline-light">Деталі</a>
             </div>
             <div class="card-body p-0">
@@ -160,19 +292,26 @@ include __DIR__ . '/../includes/header.php';
                         <?php $totalSupDebt = 0; foreach ($suppliersDebt as $s):
                             $sd = (float)$s['invoice_total'] - (float)$s['payment_total'];
                             $totalSupDebt += $sd;
-                            if ($sd <= 0) continue;
                         ?>
                         <tr>
                             <td><?php echo escape($s['name']); ?></td>
-                            <td class="text-end text-danger fw-bold"><?php echo formatMoney($sd); ?></td>
+                            <td class="text-end fw-bold <?php echo $sd > 0 ? 'text-danger' : ($sd < 0 ? 'text-success' : 'text-muted'); ?>">
+                                <?php if ($sd > 0): ?><?php echo formatMoney($sd); ?>
+                                <?php elseif ($sd < 0): ?>+<?php echo formatMoney(abs($sd)); ?> (переплата)
+                                <?php else: ?>₴0.00<?php endif; ?>
+                            </td>
                         </tr>
                         <?php endforeach; ?>
-                        <?php if ($totalSupDebt <= 0): ?>
+                        <?php if ($totalSupDebt == 0): ?>
                         <tr><td colspan="2" class="text-center text-muted py-2">Боргів немає</td></tr>
                         <?php endif; ?>
                     </tbody>
                     <tfoot>
-                        <tr class="fw-bold"><td>Разом</td><td class="text-end text-danger"><?php echo formatMoney($supplierDebt); ?></td></tr>
+                        <tr class="fw-bold"><td>Разом</td><td class="text-end <?php echo $supplierDebt > 0 ? 'text-danger' : ($supplierDebt < 0 ? 'text-success' : 'text-muted'); ?>">
+                            <?php if ($supplierDebt > 0): ?><?php echo formatMoney($supplierDebt); ?>
+                            <?php elseif ($supplierDebt < 0): ?>+<?php echo formatMoney(abs($supplierDebt)); ?> (переплата)
+                            <?php else: ?>₴0.00<?php endif; ?>
+                        </td></tr>
                     </tfoot>
                 </table>
             </div>
@@ -197,6 +336,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="card">
     <div class="card-header">
         <form method="get" class="row g-2 align-items-end">
+            <input type="hidden" name="tab" value="overview">
             <div class="col-auto">
                 <select name="account" class="form-select form-select-sm">
                     <option value="">Усі рахунки</option>
@@ -409,5 +549,359 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
+
+<?php elseif ($tab === 'payments'): ?>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-cash-stack"></i> Оплати</h4>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addPaymentModal"><i class="bi bi-plus-lg"></i> Нова оплата</button>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <input type="hidden" name="tab" value="payments">
+            <div class="col-auto">
+                <select name="p_type" class="form-select form-select-sm">
+                    <option value="">Усі оплати</option>
+                    <option value="supplier" <?php echo $pType === 'supplier' ? 'selected' : ''; ?>>Постачальникам</option>
+                    <option value="customer" <?php echo $pType === 'customer' ? 'selected' : ''; ?>>Від клієнтів</option>
+                </select>
+            </div>
+            <div class="col-auto" id="supplierFilterWrap"<?php echo $pType === 'customer' ? ' style="display:none"' : ''; ?>>
+                <select name="supplier" class="form-select form-select-sm">
+                    <option value="">Усі постачальники</option>
+                    <?php foreach ($allSuppliers as $s): ?>
+                    <option value="<?php echo $s['supplier_id']; ?>" <?php echo $pSupplierFilter === (int)$s['supplier_id'] ? 'selected' : ''; ?>><?php echo escape($s['name']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-auto">
+                <input type="date" name="p_date_from" class="form-control form-control-sm" value="<?php echo $pDateFrom; ?>" placeholder="Від">
+            </div>
+            <div class="col-auto">
+                <input type="date" name="p_date_to" class="form-control form-control-sm" value="<?php echo $pDateTo; ?>" placeholder="До">
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-sm btn-outline-primary"><i class="bi bi-funnel"></i> Фільтр</button>
+            </div>
+        </form>
+    </div>
+    <script>
+    document.querySelector('[name="p_type"]')?.addEventListener('change', function() {
+        document.getElementById('supplierFilterWrap').style.display = this.value === 'customer' ? 'none' : '';
+    });
+    </script>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <?php if (count($payments) > 0): ?>
+        <div class="table-container">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Тип</th>
+                        <th>Контрагент</th>
+                        <th>Документ</th>
+                        <th>Метод</th>
+                        <th class="text-end">Сума</th>
+                        <th>Примітка</th>
+                        <th class="text-center">Дії</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($payments as $pmt):
+                        $isSupplier = (int)$pmt['invoice_id'] > 0;
+                    ?>
+                    <tr>
+                        <td><?php echo formatDateShort($pmt['date']); ?></td>
+                        <td><?php echo $isSupplier ? '<span class="badge bg-danger">Постач.</span>' : '<span class="badge bg-success">Клієнт</span>'; ?></td>
+                        <td><?php echo escape($isSupplier ? ($pmt['supplier_name'] ?: '-') : ($pmt['order_customer'] ?: '-')); ?></td>
+                        <td>
+                            <?php if ($isSupplier): ?>
+                            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=view&id=<?php echo $pmt['invoice_id']; ?>">#<?php echo escape($pmt['invoice_number'] ?: $pmt['invoice_id']); ?></a>
+                            <?php elseif ($pmt['order_id']): ?>
+                            <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=view&id=<?php echo $pmt['order_id']; ?>">#<?php echo (int)$pmt['order_id']; ?></a>
+                            <?php else: ?>
+                            <span class="text-muted">—</span>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo $methodLabels[$pmt['method']] ?? $pmt['method']; ?></td>
+                        <td class="text-end fw-bold <?php echo $isSupplier ? 'text-danger' : 'text-success'; ?>"><?php echo $isSupplier ? '-' : '+'; ?><?php echo formatMoney($pmt['amount']); ?></td>
+                        <td><?php echo escape($pmt['notes'] ?: '-'); ?></td>
+                        <td class="text-center">
+                            <button class="btn btn-sm btn-outline-primary edit-payment"
+                                data-id="<?php echo $pmt['payment_id']; ?>"
+                                data-type="<?php echo $isSupplier ? 'supplier' : 'customer'; ?>"
+                                data-invoice="<?php echo (int)$pmt['invoice_id']; ?>"
+                                data-order="<?php echo (int)$pmt['order_id']; ?>"
+                                data-amount="<?php echo $pmt['amount']; ?>"
+                                data-method="<?php echo $pmt['method']; ?>"
+                                data-date="<?php echo $pmt['date']; ?>"
+                                data-notes="<?php echo escape($pmt['notes']); ?>"
+                                title="Редагувати"><i class="bi bi-pencil"></i></button>
+                            <a href="?tab=payments&action=delete_payment&payment_id=<?php echo $pmt['payment_id']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Видалити платіж?')" title="Видалити"><i class="bi bi-trash"></i></a>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php else: ?>
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-cash-stack" style="font-size:3rem;"></i>
+            <p class="mt-3 mb-0">Немає оплат</p>
+        </div>
+        <?php endif; ?>
+    </div>
+    <?php if ($pPagination['total_pages'] > 1): ?>
+    <div class="card-footer"><?php echo renderPagination(BASE_URL . '/modules/finance.php?tab=payments&', $pPagination); ?></div>
+    <?php endif; ?>
+</div>
+
+<!-- Add Payment Modal -->
+<div class="modal fade" id="addPaymentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="?tab=payments&action=create_payment">
+                <div class="modal-header">
+                    <h5 class="modal-title">Нова оплата</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Тип</label>
+                        <select name="p_type" class="form-select" id="addPmtType">
+                            <option value="supplier">Постачальнику</option>
+                            <option value="customer">Від клієнта</option>
+                        </select>
+                    </div>
+                    <div id="addPmtSupplierFields">
+                        <div class="mb-3">
+                            <label class="form-label">Постачальник</label>
+                            <select name="supplier_id" id="pmtSupplier" class="form-select">
+                                <option value="">— Без накладної —</option>
+                                <?php foreach ($allSuppliers as $s): ?>
+                                <option value="<?php echo $s['supplier_id']; ?>"><?php echo escape($s['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Накладна (необов'язково)</label>
+                            <select name="invoice_id" id="pmtInvoice" class="form-select">
+                                <option value="">— Без накладної —</option>
+                                <?php foreach ($allInvoicesWithDebt as $inv): ?>
+                                <option value="<?php echo $inv['invoice_id']; ?>" data-supplier="<?php echo $inv['supplier_id']; ?>">#<?php echo escape($inv['invoice_number']); ?> — <?php echo escape($inv['supplier_name']); ?> (борг: <?php echo formatMoney($inv['debt_remaining']); ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="addPmtCustomerFields" style="display:none">
+                        <div class="mb-3">
+                            <label class="form-label">Замовлення (необов'язково)</label>
+                            <select name="order_id" class="form-select">
+                                <option value="">— Без замовлення —</option>
+                                <?php foreach ($ordersWithDebt as $ord): ?>
+                                <option value="<?php echo $ord['order_id']; ?>">#<?php echo (int)$ord['order_id']; ?> — <?php echo escape($ord['customer_name'] ?: '-'); ?> (борг: <?php echo formatMoney($ord['debt_remaining']); ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Сума (UAH) *</label>
+                        <input type="number" name="amount" class="form-control" step="0.01" min="0.01" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Метод</label>
+                        <select name="method" class="form-select">
+                            <option value="cash">Готівка</option>
+                            <option value="card">Картка</option>
+                            <option value="fop">ФОП</option>
+                            <option value="invoice">Рахунок</option>
+                            <option value="transfer">Переказ</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Дата</label>
+                        <input type="date" name="date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Примітка</label>
+                        <input type="text" name="notes" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                    <button type="submit" class="btn btn-primary">Додати</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Payment Modal -->
+<div class="modal fade" id="editPaymentModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="?tab=payments&action=update_payment">
+                <div class="modal-header">
+                    <h5 class="modal-title">Редагувати платіж</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="payment_id" id="editPaymentId" value="0">
+                    <input type="hidden" name="p_type" id="editPmtType" value="supplier">
+                    <div id="editPmtSupplierFields">
+                        <div class="mb-3">
+                            <label class="form-label">Постачальник</label>
+                            <select name="supplier_id" id="editPmtSupplier" class="form-select">
+                                <option value="">— Без накладної —</option>
+                                <?php foreach ($allSuppliers as $s): ?>
+                                <option value="<?php echo $s['supplier_id']; ?>"><?php echo escape($s['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Накладна (необов'язково)</label>
+                            <select name="invoice_id" id="editPmtInvoice" class="form-select">
+                                <option value="">— Без накладної —</option>
+                                <?php foreach ($allInvoicesWithDebt as $inv): ?>
+                                <option value="<?php echo $inv['invoice_id']; ?>" data-supplier="<?php echo $inv['supplier_id']; ?>">#<?php echo escape($inv['invoice_number']); ?> — <?php echo escape($inv['supplier_name']); ?> (борг: <?php echo formatMoney($inv['debt_remaining']); ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="editPmtCustomerFields" style="display:none">
+                        <div class="mb-3">
+                            <label class="form-label">Замовлення (необов'язково)</label>
+                            <select name="order_id" id="editPmtOrder" class="form-select">
+                                <option value="">— Без замовлення —</option>
+                                <?php foreach ($ordersWithDebt as $ord): ?>
+                                <option value="<?php echo $ord['order_id']; ?>">#<?php echo (int)$ord['order_id']; ?> — <?php echo escape($ord['customer_name'] ?: '-'); ?> (борг: <?php echo formatMoney($ord['debt_remaining']); ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Сума (UAH) *</label>
+                        <input type="number" name="amount" id="editPaymentAmount" class="form-control" step="0.01" min="0.01" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Метод</label>
+                        <select name="method" id="editPaymentMethod" class="form-select">
+                            <option value="cash">Готівка</option>
+                            <option value="card">Картка</option>
+                            <option value="fop">ФОП</option>
+                            <option value="invoice">Рахунок</option>
+                            <option value="transfer">Переказ</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Дата</label>
+                        <input type="date" name="date" id="editPaymentDate" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Примітка</label>
+                        <input type="text" name="notes" id="editPaymentNotes" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                    <button type="submit" class="btn btn-primary">Зберегти</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Toggle add modal fields by type
+document.getElementById('addPmtType')?.addEventListener('change', function() {
+    var isSupplier = this.value === 'supplier';
+    document.getElementById('addPmtSupplierFields').style.display = isSupplier ? '' : 'none';
+    document.getElementById('addPmtCustomerFields').style.display = isSupplier ? 'none' : '';
+});
+
+// Filter invoices by supplier in add modal
+document.getElementById('pmtSupplier')?.addEventListener('change', function() {
+    var val = this.value;
+    var sel = document.getElementById('pmtInvoice');
+    for (var i = 0; i < sel.options.length; i++) {
+        if (i === 0) continue;
+        sel.options[i].style.display = sel.options[i].dataset.supplier === val || !val ? '' : 'none';
+    }
+    if (sel.selectedIndex > 0 && sel.options[sel.selectedIndex].style.display === 'none') {
+        sel.value = '';
+    }
+});
+
+// Fill edit modal from data attributes
+document.querySelectorAll('.edit-payment').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var type = this.dataset.type || 'supplier';
+        var isSupplier = type === 'supplier';
+
+        document.getElementById('editPaymentId').value = this.dataset.id;
+        document.getElementById('editPmtType').value = type;
+        document.getElementById('editPaymentAmount').value = this.dataset.amount;
+        document.getElementById('editPaymentMethod').value = this.dataset.method;
+        document.getElementById('editPaymentDate').value = this.dataset.date;
+        document.getElementById('editPaymentNotes').value = this.dataset.notes;
+
+        document.getElementById('editPmtSupplierFields').style.display = isSupplier ? '' : 'none';
+        document.getElementById('editPmtCustomerFields').style.display = isSupplier ? 'none' : '';
+
+        if (isSupplier) {
+            var invId = parseInt(this.dataset.invoice) || 0;
+            var editSel = document.getElementById('editPmtInvoice');
+            for (var i = 0; i < editSel.options.length; i++) {
+                if (parseInt(editSel.options[i].value) === invId) {
+                    editSel.value = invId;
+                    break;
+                }
+            }
+            var editSup = document.getElementById('editPmtSupplier');
+            if (invId) {
+                var selectedOpt = editSel.options[editSel.selectedIndex];
+                var supId = selectedOpt ? selectedOpt.dataset.supplier : '';
+                for (var j = 0; j < editSup.options.length; j++) {
+                    if (editSup.options[j].value === supId) {
+                        editSup.value = supId;
+                        break;
+                    }
+                }
+            }
+        } else {
+            var ordId = parseInt(this.dataset.order) || 0;
+            var ordSel = document.getElementById('editPmtOrder');
+            for (var i = 0; i < ordSel.options.length; i++) {
+                if (parseInt(ordSel.options[i].value) === ordId) {
+                    ordSel.value = ordId;
+                    break;
+                }
+            }
+        }
+
+        new bootstrap.Modal(document.getElementById('editPaymentModal')).show();
+    });
+});
+
+// Filter invoices in edit modal by supplier
+document.getElementById('editPmtSupplier')?.addEventListener('change', function() {
+    var val = this.value;
+    var sel = document.getElementById('editPmtInvoice');
+    for (var i = 0; i < sel.options.length; i++) {
+        if (i === 0) continue;
+        sel.options[i].style.display = sel.options[i].dataset.supplier === val || !val ? '' : 'none';
+    }
+    if (sel.selectedIndex > 0 && sel.options[sel.selectedIndex].style.display === 'none') {
+        sel.value = '';
+    }
+});
+</script>
+
+<?php endif; ?>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

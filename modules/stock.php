@@ -5,6 +5,7 @@ requireLogin();
 
 $action = $_GET['action'] ?? 'list';
 $productId = (int)($_GET['id'] ?? 0);
+$moveId = (int)($_GET['move_id'] ?? 0);
 $search = trim($_GET['search'] ?? '');
 
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -17,6 +18,11 @@ if ($action === 'moves' && $productId) {
     $stmt = $pdo->prepare("SELECT * FROM erp_products WHERE product_id = ?");
     $stmt->execute([$productId]);
     $product = $stmt->fetch();
+    $rates = getCurrentRates($pdo);
+    $stmtCur = $pdo->prepare("SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = ? ORDER BY ii.date_added DESC LIMIT 1");
+    $stmtCur->execute([$productId]);
+    $purchaseCur = $stmtCur->fetchColumn() ?: 'EUR';
+    $moveRate = $rates[$purchaseCur] ?? $rates['EUR'];
     include __DIR__ . '/../includes/header.php';
     ?>
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -35,28 +41,32 @@ if ($action === 'moves' && $productId) {
         <div class="card-body p-0">
             <?php if (count($moves) > 0): ?>
             <div class="table-container">
-                <table class="table table-hover mb-0">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Тип</th>
-                            <th>Кількість</th>
-                            <th>Собівартість</th>
-                            <th>Примітки</th>
-                            <th>Дата</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($moves as $m): ?>
-                        <tr>
-                            <td><?php echo (int)$m['move_id']; ?></td>
-                            <td><?php echo getStockTypeLabel($m['type']); ?></td>
-                            <td class="fw-bold"><?php echo (float)$m['quantity']; ?></td>
-                            <td><?php echo $m['cost_price'] ? formatMoneyForeign($m['cost_price']) : '-'; ?></td>
-                            <td><?php echo escape($m['notes'] ?: '-'); ?></td>
-                            <td><?php echo formatDate($m['date_added']); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Тип</th>
+                                <th>Кількість</th>
+                                <th>Собівартість</th>
+                                <th>Примітки</th>
+                                <th>Дата</th>
+                                <th class="text-center">Дії</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($moves as $m): ?>
+                            <tr>
+                                <td><?php echo (int)$m['move_id']; ?></td>
+                                <td><?php echo getStockTypeLabel($m['type']); ?></td>
+                                <td class="fw-bold"><?php echo (float)$m['quantity']; ?></td>
+                                <td><?php echo $m['cost_price'] ? formatMoney($m['cost_price'] * $moveRate) : '-'; ?></td>
+                                <td><?php echo escape($m['notes'] ?: '-'); ?></td>
+                                <td><?php echo formatDate($m['date_added']); ?></td>
+                                <td class="text-center">
+                                    <a href="<?php echo BASE_URL; ?>/modules/stock.php?action=delete_adjust&move_id=<?php echo (int)$m['move_id']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Видалити рух #<?php echo (int)$m['move_id']; ?>?')" title="Видалити"><i class="bi bi-trash"></i></a>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
@@ -65,6 +75,7 @@ if ($action === 'moves' && $productId) {
             <?php endif; ?>
         </div>
     </div>
+    <div class="mt-2 text-muted small">Собівартість перераховано в UAH за курсом <?php echo $purchaseCur; ?> <?php echo number_format($moveRate, 2, '.', ' '); ?></div>
     <?php
     include __DIR__ . '/../includes/footer.php';
     exit;
@@ -104,13 +115,13 @@ if ($action === 'adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
 if ($action === 'edit_adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!isManager()) { flashMessage('error', 'Недостатньо прав'); redirect(BASE_URL . '/modules/stock.php'); }
-    $moveId = (int)($_POST['move_id'] ?? 0);
+    $eMoveId = (int)($_POST['move_id'] ?? 0);
     $qty = (float)($_POST['quantity'] ?? 0);
     $costPrice = (float)($_POST['cost_price'] ?? 0);
     $notes = trim($_POST['notes'] ?? '');
-    if ($moveId && $qty != 0) {
+    if ($eMoveId && $qty != 0) {
         $stmt = $pdo->prepare("UPDATE erp_stock_moves SET quantity = ?, cost_price = ?, notes = ? WHERE move_id = ? AND type = 'adjustment'");
-        $stmt->execute([$qty, $costPrice ?: null, $notes, $moveId]);
+        $stmt->execute([$qty, $costPrice ?: null, $notes, $eMoveId]);
         flashMessage('success', 'Корекцію оновлено');
     } else {
         flashMessage('error', 'Некоректні дані');
@@ -119,9 +130,8 @@ if ($action === 'edit_adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 if ($action === 'delete_adjust' && $moveId && isManager()) {
-    $stmt = $pdo->prepare("DELETE FROM erp_stock_moves WHERE move_id = ? AND type = 'adjustment'");
-    $stmt->execute([$moveId]);
-    flashMessage('success', 'Корекцію видалено');
+    $pdo->prepare("DELETE FROM erp_stock_moves WHERE move_id = ?")->execute([$moveId]);
+    flashMessage('success', 'Рух видалено');
     redirect(BASE_URL . '/modules/stock.php?action=corrections');
 }
 
@@ -132,11 +142,22 @@ if ($action === 'batch_delete_adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') 
     $ids = array_filter($ids);
     if (count($ids) > 0) {
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $stmt = $pdo->prepare("DELETE FROM erp_stock_moves WHERE move_id IN ($placeholders) AND type = 'adjustment'");
+        $stmt = $pdo->prepare("DELETE FROM erp_stock_moves WHERE move_id IN ($placeholders)");
         $stmt->execute(array_values($ids));
-        flashMessage('success', 'Видалено корекцій: ' . $stmt->rowCount());
+        flashMessage('success', 'Видалено рухів: ' . $stmt->rowCount());
     }
     redirect(BASE_URL . '/modules/stock.php?action=corrections');
+}
+
+if ($action === 'delete_product' && isManager()) {
+    $pid = (int)($_GET['product_id'] ?? 0);
+    if ($pid) {
+        $pdo->prepare("DELETE FROM erp_product_categories WHERE product_id = ?")->execute([$pid]);
+        $pdo->prepare("DELETE FROM erp_stock_moves WHERE product_id = ?")->execute([$pid]);
+        $pdo->prepare("DELETE FROM erp_products WHERE product_id = ?")->execute([$pid]);
+        flashMessage('success', 'Товар видалено');
+    }
+    redirect(BASE_URL . '/modules/stock.php');
 }
 
 if ($action === 'edit_product' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -1005,7 +1026,8 @@ if ($action === 'corrections') {
     $corrTotal = $pdo->query("SELECT COUNT(*) FROM erp_stock_moves WHERE type = 'adjustment'")->fetchColumn();
     $corrPagination = paginate($corrTotal, $corrPerPage, $corrPage);
     $corrections = $pdo->prepare("
-        SELECT m.*, p.name as product_name
+        SELECT m.*, p.name as product_name,
+            COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'EUR') as purchase_currency
         FROM erp_stock_moves m
         LEFT JOIN erp_products p ON m.product_id = p.product_id
         WHERE m.type = 'adjustment'
@@ -1018,6 +1040,7 @@ if ($action === 'corrections') {
     $corrections = $corrections->fetchAll();
 
     $products = $pdo->query("SELECT product_id, name, model FROM erp_products ORDER BY name ASC")->fetchAll();
+    $corrRates = getCurrentRates($pdo);
 
     include __DIR__ . '/../includes/header.php';
     ?>
@@ -1059,7 +1082,7 @@ if ($action === 'corrections') {
                                 </a>
                             </td>
                             <td class="fw-bold <?php echo $c['quantity'] > 0 ? 'text-success' : 'text-danger'; ?>"><?php echo (float)$c['quantity'] > 0 ? '+' . (float)$c['quantity'] : (float)$c['quantity']; ?></td>
-                            <td><?php echo $c['cost_price'] ? formatMoneyForeign($c['cost_price']) : '-'; ?></td>
+                            <td><?php echo $c['cost_price'] ? formatMoney($c['cost_price'] * ($corrRates[$c['purchase_currency']] ?? $corrRates['EUR'])) : '-'; ?></td>
                             <td><?php echo escape($c['notes'] ?: '-'); ?></td>
                             <td><?php echo formatDate($c['date_added']); ?></td>
                             <td class="text-center">
@@ -1334,6 +1357,7 @@ include __DIR__ . '/../includes/header.php';
                             <a href="<?php echo BASE_URL; ?>/modules/stock.php?action=moves&id=<?php echo (int)$p['product_id']; ?>" class="btn btn-sm btn-outline-info" title="Рух товару">
                                 <i class="bi bi-arrow-left-right"></i>
                             </a>
+                            <a href="?action=delete_product&product_id=<?php echo (int)$p['product_id']; ?>" class="btn btn-sm btn-outline-danger" title="Видалити товар" onclick="return confirm('Видалити товар «<?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?>» і всі його рухи?')"><i class="bi bi-trash"></i></a>
                         </td>
                     </tr>
                     <?php endforeach; ?>

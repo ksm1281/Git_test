@@ -56,7 +56,7 @@ $pagination = paginate($total, $perPage, $page);
 
 $sql = "SELECT s.*,
     COALESCE((SELECT SUM(i.total_local) FROM erp_incoming_invoices i WHERE i.supplier_id = s.supplier_id AND i.status IN ('draft', 'confirmed')), 0) as invoice_total,
-    COALESCE((SELECT SUM(p.amount) FROM erp_payments p JOIN erp_incoming_invoices i ON p.invoice_id = i.invoice_id WHERE i.supplier_id = s.supplier_id), 0) as payment_total
+    COALESCE((SELECT SUM(p.amount) FROM erp_payments p JOIN erp_incoming_invoices i ON p.invoice_id = i.invoice_id WHERE i.supplier_id = s.supplier_id AND i.status IN ('draft', 'confirmed')), 0) as payment_total
     FROM erp_suppliers s $where ORDER BY s.name ASC LIMIT {$pagination['per_page']} OFFSET {$pagination['offset']}";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
