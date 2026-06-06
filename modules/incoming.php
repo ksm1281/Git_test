@@ -307,16 +307,123 @@ if ($action === 'pay' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId && 
     redirect(BASE_URL . '/modules/incoming.php?action=view&id=' . $invoiceId);
 }
 
+if ($action === 'delete_payment' && $invoiceId && isManager()) {
+    $paymentId = (int)($_GET['payment_id'] ?? 0);
+    if ($paymentId) {
+        $pdo->prepare("DELETE FROM erp_payments WHERE payment_id = ? AND invoice_id = ?")->execute([$paymentId, $invoiceId]);
+        $pdo->prepare("DELETE FROM erp_transactions WHERE reference_type = 'invoice' AND reference_id = ? AND amount = (SELECT amount FROM erp_payments WHERE payment_id = ?)")->execute([$invoiceId, $paymentId]);
+        flashMessage('success', 'Платіж видалено');
+    }
+    redirect(BASE_URL . '/modules/incoming.php?action=view&id=' . $invoiceId);
+}
+
+if ($action === 'update_payment' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId && isManager()) {
+    $paymentId = (int)($_POST['payment_id'] ?? 0);
+    $amount = (float)($_POST['amount'] ?? 0);
+    $method = $_POST['method'] ?? 'cash';
+    $date = $_POST['date'] ?? date('Y-m-d');
+    $notes = trim($_POST['notes'] ?? '');
+
+    if ($paymentId && $amount > 0) {
+        $stmt = $pdo->prepare("UPDATE erp_payments SET amount=?, method=?, date=?, notes=? WHERE payment_id=? AND invoice_id=?");
+        $stmt->execute([$amount, $method, $date, $notes, $paymentId, $invoiceId]);
+        flashMessage('success', 'Платіж оновлено');
+    } else {
+        flashMessage('error', 'Некоректні дані');
+    }
+    redirect(BASE_URL . '/modules/incoming.php?action=view&id=' . $invoiceId);
+}
+
 if ($action === 'confirm' && $invoiceId) {
+    $stmt = $pdo->prepare("SELECT status FROM erp_incoming_invoices WHERE invoice_id = ?");
+    $stmt->execute([$invoiceId]);
+    $oldStatus = $stmt->fetchColumn();
+
     $pdo->prepare("UPDATE erp_incoming_invoices SET status = 'confirmed' WHERE invoice_id = ?")->execute([$invoiceId]);
+
+    if ($oldStatus === 'cancelled') {
+        $pdo->prepare("DELETE FROM erp_stock_moves WHERE reference_type = 'invoice_cancel' AND reference_id = ?")->execute([$invoiceId]);
+    }
+
     flashMessage('success', 'Накладну підтверджено');
     redirect(BASE_URL . '/modules/incoming.php');
 }
 
+if ($action === 'fix_stock' && $invoiceId && isManager()) {
+    $stmt = $pdo->prepare("SELECT status, invoice_number FROM erp_incoming_invoices WHERE invoice_id = ?");
+    $stmt->execute([$invoiceId]);
+    $inv = $stmt->fetch();
+    if (!$inv || $inv['status'] !== 'cancelled') {
+        flashMessage('error', 'Виправлення доступне лише для скасованих накладних');
+        redirect(BASE_URL . '/modules/incoming.php?action=view&id=' . $invoiceId);
+    }
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM erp_stock_moves WHERE reference_type = 'invoice_cancel' AND reference_id = ?");
+    $stmt->execute([$invoiceId]);
+    $existingCancels = (int)$stmt->fetchColumn();
+    if ($existingCancels > 0) {
+        flashMessage('info', 'Зворотні рухи вже існують');
+        redirect(BASE_URL . '/modules/incoming.php?action=view&id=' . $invoiceId);
+    }
+
+    $stmt = $pdo->prepare("SELECT product_id, quantity, cost_price FROM erp_stock_moves WHERE reference_type = 'invoice' AND reference_id = ? AND type = 'in'");
+    $stmt->execute([$invoiceId]);
+    $stockMoves = $stmt->fetchAll();
+
+    if (empty($stockMoves)) {
+        flashMessage('info', 'Немає рухів складу для цієї накладної');
+        redirect(BASE_URL . '/modules/incoming.php?action=view&id=' . $invoiceId);
+    }
+
+    foreach ($stockMoves as $sm) {
+        $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, notes) VALUES (?, 'out', ?, ?, 'invoice_cancel', ?, ?)")
+            ->execute([$sm['product_id'], $sm['quantity'], $sm['cost_price'], $invoiceId, 'Скасування накладної #' . ($inv['invoice_number'] ?: $invoiceId)]);
+    }
+
+    flashMessage('success', 'Залишки складу виправлено');
+    redirect(BASE_URL . '/modules/incoming.php?action=view&id=' . $invoiceId);
+}
+
 if ($action === 'cancel' && $invoiceId) {
+    $stmt = $pdo->prepare("SELECT invoice_number FROM erp_incoming_invoices WHERE invoice_id = ?");
+    $stmt->execute([$invoiceId]);
+    $invNum = $stmt->fetchColumn();
+
+    $pdo->beginTransaction();
+    $stmt = $pdo->prepare("SELECT product_id, quantity, cost_price FROM erp_stock_moves WHERE reference_type = 'invoice' AND reference_id = ? AND type = 'in'");
+    $stmt->execute([$invoiceId]);
+    $stockMoves = $stmt->fetchAll();
+
+    foreach ($stockMoves as $sm) {
+        $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, notes) VALUES (?, 'out', ?, ?, 'invoice_cancel', ?, ?)")
+            ->execute([$sm['product_id'], $sm['quantity'], $sm['cost_price'], $invoiceId, 'Скасування накладної #' . ($invNum ?: $invoiceId)]);
+    }
+
     $pdo->prepare("UPDATE erp_incoming_invoices SET status = 'cancelled' WHERE invoice_id = ?")->execute([$invoiceId]);
-    flashMessage('success', 'Накладну скасовано');
+    $pdo->commit();
+
+    flashMessage('success', 'Накладну скасовано, рух складу зворотньо проведено');
     redirect(BASE_URL . '/modules/incoming.php');
+}
+
+if ($action === 'reopen' && $invoiceId) {
+    $stmt = $pdo->prepare("SELECT status FROM erp_incoming_invoices WHERE invoice_id = ?");
+    $stmt->execute([$invoiceId]);
+    $oldStatus = $stmt->fetchColumn();
+
+    if (!$oldStatus || $oldStatus === 'draft') {
+        flashMessage('error', 'Накладна вже є чернеткою');
+        redirect(BASE_URL . '/modules/incoming.php');
+    }
+
+    if ($oldStatus === 'cancelled') {
+        $pdo->prepare("DELETE FROM erp_stock_moves WHERE reference_type = 'invoice_cancel' AND reference_id = ?")->execute([$invoiceId]);
+    }
+
+    $pdo->prepare("UPDATE erp_incoming_invoices SET status = 'draft' WHERE invoice_id = ?")->execute([$invoiceId]);
+
+    flashMessage('success', 'Накладну відкрито як чернетку');
+    redirect(BASE_URL . '/modules/incoming.php?action=edit&id=' . $invoiceId);
 }
 
 if ($action === 'view' && $invoiceId) {
@@ -340,9 +447,12 @@ if ($action === 'view' && $invoiceId) {
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=confirm&id=<?php echo $invoiceId; ?>" class="btn btn-success btn-sm" onclick="return confirm('Підтвердити накладну?')"><i class="bi bi-check-lg"></i> Підтвердити</a>
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=cancel&id=<?php echo $invoiceId; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Скасувати накладну?')"><i class="bi bi-x-lg"></i> Скасувати</a>
             <?php elseif ($invoice['status'] === 'confirmed'): ?>
+            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=reopen&id=<?php echo $invoiceId; ?>" class="btn btn-warning btn-sm" onclick="return confirm('Відкрити накладну як чернетку для редагування?')"><i class="bi bi-unlock"></i> Відкрити як чернетку</a>
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=cancel&id=<?php echo $invoiceId; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Скасувати накладну?')"><i class="bi bi-x-lg"></i> Скасувати</a>
             <?php elseif ($invoice['status'] === 'cancelled'): ?>
+            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=reopen&id=<?php echo $invoiceId; ?>" class="btn btn-warning btn-sm" onclick="return confirm('Відкрити накладну як чернетку для редагування?')"><i class="bi bi-unlock"></i> Відкрити як чернетку</a>
             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=confirm&id=<?php echo $invoiceId; ?>" class="btn btn-success btn-sm" onclick="return confirm('Відновити накладну?')"><i class="bi bi-check-lg"></i> Відновити</a>
+            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=fix_stock&id=<?php echo $invoiceId; ?>" class="btn btn-warning btn-sm"><i class="bi bi-arrow-return-left"></i> Виправити залишки</a>
             <?php endif; ?>
         </div>
     </div>
@@ -431,7 +541,7 @@ if ($action === 'view' && $invoiceId) {
                     <?php if (count($payments) > 0): ?>
                     <table class="table table-sm mb-0">
                         <thead>
-                            <tr><th>Дата</th><th>Метод</th><th class="text-end">Сума</th><th>Примітка</th></tr>
+                            <tr><th>Дата</th><th>Метод</th><th class="text-end">Сума</th><th>Примітка</th><th class="text-center">Дії</th></tr>
                         </thead>
                         <tbody>
                             <?php foreach ($payments as $pmt): ?>
@@ -440,12 +550,22 @@ if ($action === 'view' && $invoiceId) {
                                 <td><?php echo $methodLabels[$pmt['method']] ?? $pmt['method']; ?></td>
                                 <td class="text-end fw-bold text-danger"><?php echo formatMoney($pmt['amount']); ?></td>
                                 <td><?php echo escape($pmt['notes'] ?: '-'); ?></td>
+                                <td class="text-center">
+                                    <button class="btn btn-sm btn-outline-primary edit-payment"
+                                        data-id="<?php echo $pmt['payment_id']; ?>"
+                                        data-amount="<?php echo $pmt['amount']; ?>"
+                                        data-method="<?php echo $pmt['method']; ?>"
+                                        data-date="<?php echo $pmt['date']; ?>"
+                                        data-notes="<?php echo escape($pmt['notes']); ?>"
+                                        title="Редагувати"><i class="bi bi-pencil"></i></button>
+                                    <a href="?action=delete_payment&id=<?php echo $invoiceId; ?>&payment_id=<?php echo $pmt['payment_id']; ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Видалити платіж?')" title="Видалити"><i class="bi bi-trash"></i></a>
+                                </td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>
                         <tfoot>
-                            <tr class="fw-bold"><td colspan="2">Сплачено</td><td class="text-end text-danger"><?php echo formatMoney($totalPaid); ?></td><td></td></tr>
-                            <tr class="fw-bold <?php echo $balance > 0 ? 'text-warning' : 'text-success'; ?>"><td colspan="2">Залишок</td><td class="text-end"><?php echo formatMoney($balance); ?></td><td></td></tr>
+                            <tr class="fw-bold"><td colspan="2">Сплачено</td><td class="text-end text-danger"><?php echo formatMoney($totalPaid); ?></td><td></td><td></td></tr>
+                            <tr class="fw-bold <?php echo $balance > 0 ? 'text-warning' : 'text-success'; ?>"><td colspan="2">Залишок</td><td class="text-end"><?php echo formatMoney($balance); ?></td><td></td><td></td></tr>
                         </tfoot>
                     </table>
                     <?php else: ?>
@@ -483,7 +603,7 @@ if ($action === 'view' && $invoiceId) {
                         <div class="row g-2">
                             <div class="col-md-4">
                                 <label class="form-label">Сума (UAH)</label>
-                                <input type="number" name="amount" class="form-control" step="0.01" min="0.01" required>
+                                <input type="number" name="amount" class="form-control" step="0.01" min="0.01" value="<?php echo max(0, $balance); ?>" required>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Метод</label>
@@ -521,6 +641,62 @@ if ($action === 'view' && $invoiceId) {
             </div>
         </div>
     </div>
+
+    <!-- Edit Payment Modal -->
+    <div class="modal fade" id="editPaymentModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" action="?action=update_payment&id=<?php echo $invoiceId; ?>">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Редагувати платіж</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" name="payment_id" id="editPaymentId" value="0">
+                        <div class="mb-3">
+                            <label class="form-label">Сума (UAH) *</label>
+                            <input type="number" name="amount" id="editPaymentAmount" class="form-control" step="0.01" min="0.01" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Метод</label>
+                            <select name="method" id="editPaymentMethod" class="form-select">
+                                <option value="cash">Готівка</option>
+                                <option value="card">Картка</option>
+                                <option value="fop">ФОП</option>
+                                <option value="invoice">Рахунок</option>
+                                <option value="transfer">Переказ</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Дата</label>
+                            <input type="date" name="date" id="editPaymentDate" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Примітка</label>
+                            <input type="text" name="notes" id="editPaymentNotes" class="form-control">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                        <button type="submit" class="btn btn-primary">Зберегти</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.querySelectorAll('.edit-payment').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('editPaymentId').value = this.dataset.id;
+            document.getElementById('editPaymentAmount').value = this.dataset.amount;
+            document.getElementById('editPaymentMethod').value = this.dataset.method;
+            document.getElementById('editPaymentDate').value = this.dataset.date;
+            document.getElementById('editPaymentNotes').value = this.dataset.notes;
+            new bootstrap.Modal(document.getElementById('editPaymentModal')).show();
+        });
+    });
+    </script>
     <?php
     include __DIR__ . '/../includes/footer.php';
     exit;
@@ -529,9 +705,6 @@ if ($action === 'view' && $invoiceId) {
 if ($action === 'create' || $action === 'edit') {
     $stmt = $pdo->query("SELECT * FROM erp_suppliers WHERE status = 1 ORDER BY name ASC");
     $suppliers = $stmt->fetchAll();
-    $stmt = $pdo->query("SELECT product_id, name, model, sku FROM erp_products WHERE status = 1 ORDER BY name ASC LIMIT 500");
-    $products = $stmt->fetchAll();
-
     $isEdit = ($action === 'edit' && $invoiceId);
     $invoice = [];
     $items = [];
@@ -545,7 +718,7 @@ if ($action === 'create' || $action === 'edit') {
             flashMessage('error', 'Накладну не знайдено або вона не є чернеткою');
             redirect(BASE_URL . '/modules/incoming.php');
         }
-        $stmt = $pdo->prepare("SELECT * FROM erp_invoice_items WHERE invoice_id = ?");
+        $stmt = $pdo->prepare("SELECT ii.*, p.name as product_name FROM erp_invoice_items ii LEFT JOIN erp_products p ON ii.product_id = p.product_id WHERE ii.invoice_id = ?");
         $stmt->execute([$invoiceId]);
         $items = $stmt->fetchAll();
         $rate = $invoice['currency'] === 'UAH' ? 1 : $invoice['exchange_rate'];
@@ -698,13 +871,10 @@ if ($action === 'create' || $action === 'edit') {
                             <?php if ($isEdit && count($items) > 0): ?>
                                 <?php foreach ($items as $item): ?>
                                 <tr>
-                                    <td>
-                                        <select name="product_id[]" class="form-select" required>
-                                            <option value="">-- Виберіть --</option>
-                                            <?php foreach ($products as $p): ?>
-                                            <option value="<?php echo $p['product_id']; ?>" <?php echo $item['product_id'] == $p['product_id'] ? 'selected' : ''; ?>><?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
+                                    <td class="position-relative">
+                                        <input type="text" class="form-control product-autocomplete" placeholder="Пошук товару..." autocomplete="off" value="<?php echo escape($item['product_name'] ?: 'ID: ' . $item['product_id']); ?>">
+                                        <input type="hidden" name="product_id[]" class="product-id-input" value="<?php echo (int)$item['product_id']; ?>">
+                                        <div class="product-dropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;"></div>
                                     </td>
                                     <td><input type="number" name="quantity[]" class="form-control" step="0.01" min="0.01" required value="<?php echo (float)$item['quantity']; ?>"></td>
                                     <td><input type="number" name="price_foreign[]" class="form-control price-foreign" step="0.0001" min="0" required value="<?php echo (float)$item['price_foreign']; ?>"></td>
@@ -714,13 +884,10 @@ if ($action === 'create' || $action === 'edit') {
                                 <?php endforeach; ?>
                             <?php else: ?>
                             <tr>
-                                <td>
-                                    <select name="product_id[]" class="form-select" required>
-                                        <option value="">-- Виберіть --</option>
-                                        <?php foreach ($products as $p): ?>
-                                        <option value="<?php echo $p['product_id']; ?>"><?php echo escape($p['name'] ?: 'ID: ' . $p['product_id']); ?></option>
-                                        <?php endforeach; ?>
-                                    </select>
+                                <td class="position-relative">
+                                    <input type="text" class="form-control product-autocomplete" placeholder="Пошук товару..." autocomplete="off">
+                                    <input type="hidden" name="product_id[]" class="product-id-input" value="">
+                                    <div class="product-dropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;"></div>
                                 </td>
                                 <td><input type="number" name="quantity[]" class="form-control" step="0.01" min="0.01" required></td>
                                 <td><input type="number" name="price_foreign[]" class="form-control price-foreign" step="0.0001" min="0" required></td>
@@ -744,14 +911,110 @@ if ($action === 'create' || $action === 'edit') {
         </div>
     </div>
     <script>
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function initRow(row) {
+        var input = row.querySelector('.product-autocomplete');
+        var hidden = row.querySelector('.product-id-input');
+        var dropdown = row.querySelector('.product-dropdown');
+        if (!input || !hidden || !dropdown) return;
+
+        function selectProduct(id, name) {
+            hidden.value = id;
+            input.value = name;
+            input._lastVal = name;
+            dropdown.style.display = 'none';
+        }
+
+        function positionDropdown() {
+            var rect = input.getBoundingClientRect();
+            var top = rect.bottom;
+            var maxH = Math.min(200, window.innerHeight - rect.bottom - 20);
+            if (maxH < 80) {
+                top = Math.max(0, rect.top - 200);
+                maxH = 200;
+            }
+            dropdown.style.position = 'fixed';
+            dropdown.style.top = top + 'px';
+            dropdown.style.left = rect.left + 'px';
+            dropdown.style.width = rect.width + 'px';
+            dropdown.style.maxHeight = maxH + 'px';
+        }
+
+        function filterProducts(q) {
+            if (!q) { dropdown.style.display = 'none'; return; }
+            fetch('<?php echo BASE_URL; ?>/api/search-products.php?q=' + encodeURIComponent(q))
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
+                .then(function(data) {
+                    if (!data || data.length === 0) { dropdown.style.display = 'none'; return; }
+                    if (data.error) { console.error('API error:', data.error); dropdown.style.display = 'none'; return; }
+                    dropdown.innerHTML = data.map(function(p) {
+                        return '<button class="dropdown-item" type="button" data-id="' + p.product_id + '">' + escapeHtml(p.name) + '</button>';
+                    }).join('');
+                    positionDropdown();
+                    dropdown.style.display = 'block';
+                })
+                .catch(function(err) {
+                    console.error('Product search error:', err);
+                    dropdown.style.display = 'none';
+                });
+        }
+
+        var debounceTimer;
+        function repositionOnScroll() {
+            if (dropdown.style.display === 'block') positionDropdown();
+        }
+        window.addEventListener('scroll', repositionOnScroll, true);
+        window.addEventListener('resize', repositionOnScroll);
+
+        input.addEventListener('input', function() {
+            if (this.value !== this._lastVal) {
+                hidden.value = '';
+                this._lastVal = this.value;
+            }
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function() { filterProducts(input.value); }, 250);
+        });
+
+        input.addEventListener('blur', function() {
+            setTimeout(function() { dropdown.style.display = 'none'; }, 200);
+        });
+
+        input.addEventListener('focus', function() {
+            if (this.value) filterProducts(this.value);
+        });
+
+        dropdown.addEventListener('click', function(e) {
+            var btn = e.target.closest('.dropdown-item');
+            if (!btn) return;
+            selectProduct(btn.dataset.id, btn.textContent);
+        });
+    }
+
+    document.querySelectorAll('#itemsBody tr').forEach(initRow);
+
     document.getElementById('addItem')?.addEventListener('click', function() {
         const tbody = document.getElementById('itemsBody');
         const firstRow = tbody.querySelector('tr');
         const newRow = firstRow.cloneNode(true);
-        newRow.querySelectorAll('input').forEach(i => i.value = '');
+        newRow.querySelectorAll('input').forEach(function(i) {
+            if (i.classList.contains('product-autocomplete')) { i.value = ''; i._lastVal = ''; }
+            else if (i.classList.contains('product-id-input')) { i.value = ''; }
+            else i.value = '';
+        });
+        newRow.querySelector('.product-dropdown').innerHTML = '';
         newRow.querySelector('.line-total').textContent = '0.00';
         tbody.appendChild(newRow);
+        initRow(newRow);
     });
+
     document.addEventListener('click', function(e) {
         if (e.target.closest('.remove-item')) {
             const tbody = document.getElementById('itemsBody');
@@ -761,6 +1024,7 @@ if ($action === 'create' || $action === 'edit') {
             }
         }
     });
+
     document.addEventListener('input', function(e) {
         if (e.target.classList.contains('price-foreign') || e.target.name.includes('quantity')) {
             const row = e.target.closest('tr');
@@ -772,6 +1036,7 @@ if ($action === 'create' || $action === 'edit') {
             }
         }
     });
+
     function calcTotal() {
         let total = 0;
         document.querySelectorAll('.line-total').forEach(function(el) {
@@ -828,9 +1093,15 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-end"><?php echo formatMoneyForeign($inv['total_foreign'], $inv['currency']); ?></td>
                         <td class="text-end"><?php echo formatMoney($inv['total_local']); ?></td>
                         <td><?php echo getStatusBadge($inv['status']); ?></td>
-                        <td class="text-center">
+                        <td class="text-center" style="white-space:nowrap;">
                             <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=view&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i></a>
-                            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=view&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-warning"><i class="bi bi-pencil"></i></a>
+                            <?php if ($inv['status'] === 'draft'): ?>
+                            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=edit&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-warning" title="Редагувати"><i class="bi bi-pencil"></i></a>
+                            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=confirm&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-success" onclick="return confirm('Підтвердити накладну?')" title="Підтвердити"><i class="bi bi-check-lg"></i></a>
+                            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=cancel&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Скасувати накладну?')" title="Скасувати"><i class="bi bi-x-lg"></i></a>
+                            <?php else: ?>
+                            <a href="<?php echo BASE_URL; ?>/modules/incoming.php?action=reopen&id=<?php echo $inv['invoice_id']; ?>" class="btn btn-sm btn-outline-warning" onclick="return confirm('Відкрити накладну як чернетку?')" title="Відкрити як чернетку"><i class="bi bi-unlock"></i></a>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>

@@ -21,8 +21,7 @@ try {
         SELECT product_id, name, model, sku,
                price_retail, price_wholesale, price_semi_wholesale
         FROM erp_products
-        WHERE status = 1
-          AND (name LIKE ? OR model LIKE ? OR sku LIKE ?)
+        WHERE (name LIKE ? OR model LIKE ? OR sku LIKE ?)
         ORDER BY name ASC
         LIMIT 20
     ");
