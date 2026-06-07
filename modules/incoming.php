@@ -180,6 +180,7 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $quantities = $_POST['quantity'] ?? [];
         $pricesForeign = $_POST['price_foreign'] ?? [];
 
+        $errorRows = [];
         $totalForeign = 0;
         $totalLocal = 0;
 
@@ -187,7 +188,15 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $pid = (int)$productIds[$i];
             $qty = (float)($quantities[$i] ?? 0);
             $pf = (float)($pricesForeign[$i] ?? 0);
-            if ($pid <= 0 || $qty <= 0) continue;
+
+            if ($pid <= 0) {
+                $errorRows[] = 'Рядок ' . ($i + 1) . ': не вибрано товар';
+                continue;
+            }
+            if ($qty <= 0) {
+                $errorRows[] = 'Рядок ' . ($i + 1) . ': некоректна кількість';
+                continue;
+            }
 
             $tf = $qty * $pf;
             $tl = $tf * $rate;
@@ -199,6 +208,12 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, user_id, notes) VALUES (?, 'in', ?, ?, 'invoice', ?, ?, ?)");
             $stmt->execute([$pid, $qty, $pf, $invoiceId, $user['user_id'], 'Накладна ' . $invoiceNumber]);
+        }
+
+        if (!empty($errorRows)) {
+            $pdo->rollBack();
+            flashMessage('error', implode('<br>', $errorRows));
+            redirect(BASE_URL . '/modules/incoming.php?action=create');
         }
 
         $stmt = $pdo->prepare("UPDATE erp_incoming_invoices SET total_foreign = ?, total_local = ? WHERE invoice_id = ?");
@@ -247,6 +262,7 @@ if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId)
         $quantities = $_POST['quantity'] ?? [];
         $pricesForeign = $_POST['price_foreign'] ?? [];
 
+        $errorRows = [];
         $totalForeign = 0;
         $totalLocal = 0;
 
@@ -254,7 +270,15 @@ if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId)
             $pid = (int)$productIds[$i];
             $qty = (float)($quantities[$i] ?? 0);
             $pf = (float)($pricesForeign[$i] ?? 0);
-            if ($pid <= 0 || $qty <= 0) continue;
+
+            if ($pid <= 0) {
+                $errorRows[] = 'Рядок ' . ($i + 1) . ': не вибрано товар';
+                continue;
+            }
+            if ($qty <= 0) {
+                $errorRows[] = 'Рядок ' . ($i + 1) . ': некоректна кількість';
+                continue;
+            }
 
             $tf = $qty * $pf;
             $tl = $tf * $rate;
@@ -266,6 +290,12 @@ if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId)
 
             $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, user_id, notes) VALUES (?, 'in', ?, ?, 'invoice', ?, ?, ?)");
             $stmt->execute([$pid, $qty, $pf, $invoiceId, $user['user_id'], 'Накладна ' . $invoiceNumber]);
+        }
+
+        if (!empty($errorRows)) {
+            $pdo->rollBack();
+            flashMessage('error', implode('<br>', $errorRows));
+            redirect(BASE_URL . '/modules/incoming.php?action=edit&id=' . $invoiceId);
         }
 
         $pdo->prepare("UPDATE erp_incoming_invoices SET total_foreign = ?, total_local = ? WHERE invoice_id = ?")
@@ -724,6 +754,21 @@ if ($action === 'create' || $action === 'edit') {
         $rate = $invoice['currency'] === 'UAH' ? 1 : $invoice['exchange_rate'];
     }
 
+    $alpineItems = [];
+    if ($isEdit) {
+        foreach ($items as $item) {
+            $alpineItems[] = [
+                'product_id' => (int)$item['product_id'],
+                'name' => $item['product_name'] ?: '',
+                'qty' => (float)$item['quantity'],
+                'price' => (float)$item['price_foreign'],
+                'prices' => [],
+            ];
+        }
+    } else {
+        $alpineItems[] = ['product_id' => '', 'name' => '', 'qty' => 1, 'price' => 0, 'prices' => []];
+    }
+
     $formAction = $isEdit ? 'update&id=' . $invoiceId : 'create';
     $title = $isEdit ? 'Редагування накладної #' . escape($invoice['invoice_number']) : 'Нова прихідна накладна';
     $submitLabel = $isEdit ? 'Зберегти зміни' : 'Створити накладну';
@@ -818,7 +863,7 @@ if ($action === 'create' || $action === 'edit') {
     <div class="card">
         <div class="card-header">Дані накладної</div>
         <div class="card-body">
-            <form method="post" action="?action=<?php echo $formAction; ?>" id="invoiceForm">
+            <form method="post" action="?action=<?php echo $formAction; ?>" id="invoiceForm" x-data="itemsForm({ searchUrl: '<?php echo BASE_URL; ?>/api/search-products.php' })" data-items="<?php echo htmlspecialchars(json_encode($alpineItems), ENT_QUOTES, 'UTF-8'); ?>">
                 <div class="row g-3 mb-3">
                     <div class="col-md-3">
                         <label class="form-label required">Номер накладної</label>
@@ -867,184 +912,49 @@ if ($action === 'create' || $action === 'edit') {
                                 <th style="width:5%;"></th>
                             </tr>
                         </thead>
-                        <tbody id="itemsBody">
-                            <?php if ($isEdit && count($items) > 0): ?>
-                                <?php foreach ($items as $item): ?>
-                                <tr>
-                                    <td class="position-relative">
-                                        <input type="text" class="form-control product-autocomplete" placeholder="Пошук товару..." autocomplete="off" value="<?php echo escape($item['product_name'] ?: 'ID: ' . $item['product_id']); ?>">
-                                        <input type="hidden" name="product_id[]" class="product-id-input" value="<?php echo (int)$item['product_id']; ?>">
-                                        <div class="product-dropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;"></div>
-                                    </td>
-                                    <td><input type="number" name="quantity[]" class="form-control" step="0.01" min="0.01" required value="<?php echo (float)$item['quantity']; ?>"></td>
-                                    <td><input type="number" name="price_foreign[]" class="form-control price-foreign" step="0.0001" min="0" required value="<?php echo (float)$item['price_foreign']; ?>"></td>
-                                    <td><span class="line-total fw-bold"><?php echo number_format((float)$item['quantity'] * (float)$item['price_foreign'], 2); ?></span></td>
-                                    <td><button type="button" class="btn btn-outline-danger btn-sm remove-item"><i class="bi bi-trash"></i></button></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                            <tr>
+                        <tbody>
+                            <template x-for="(item, idx) in items" :key="idx">
+                            <tr :data-idx="idx">
                                 <td class="position-relative">
-                                    <input type="text" class="form-control product-autocomplete" placeholder="Пошук товару..." autocomplete="off">
-                                    <input type="hidden" name="product_id[]" class="product-id-input" value="">
-                                    <div class="product-dropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;"></div>
+                                    <input type="text" class="form-control product-autocomplete"
+                                           placeholder="Пошук товару..." autocomplete="off"
+                                           x-model="item.name"
+                                           @input.debounce.300ms="searchProduct(idx, $event.target.value)"
+                                           @focus="if(item.name) searchProduct(idx, item.name)"
+                                           @keydown.escape="searchOpenIdx = -1"
+                                           @blur="setTimeout(() => searchOpenIdx = -1, 200)">
+                                    <input type="hidden" :name="'product_id[]'" x-model="item.product_id">
+                                    <div class="product-dropdown" x-cloak
+                                         x-show="searchOpenIdx === idx && searchResults.length > 0"
+                                         style="z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;">
+                                        <template x-for="p in searchResults" :key="p.product_id">
+                                            <button type="button" class="dropdown-item"
+                                                    @mousedown.prevent="selectProduct(p)">
+                                                <span x-text="p.name"></span>
+                                            </button>
+                                        </template>
+                                    </div>
                                 </td>
-                                <td><input type="number" name="quantity[]" class="form-control" step="0.01" min="0.01" required></td>
-                                <td><input type="number" name="price_foreign[]" class="form-control price-foreign" step="0.0001" min="0" required></td>
-                                <td><span class="line-total fw-bold">0.00</span></td>
-                                <td><button type="button" class="btn btn-outline-danger btn-sm remove-item"><i class="bi bi-trash"></i></button></td>
+                                <td><input type="number" :name="'quantity[]'" class="form-control" step="0.01" min="0.01" required x-model="item.qty"></td>
+                                <td><input type="number" :name="'price_foreign[]'" class="form-control" step="0.0001" min="0" required x-model="item.price"></td>
+                                <td><span class="fw-bold" x-text="(item.qty * item.price).toFixed(2)"></span></td>
+                                <td><button type="button" class="btn btn-outline-danger btn-sm" @click="removeItem(idx)" x-show="items.length > 1"><i class="bi bi-trash"></i></button></td>
                             </tr>
-                            <?php endif; ?>
+                            </template>
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td><button type="button" class="btn btn-sm btn-outline-primary" id="addItem"><i class="bi bi-plus-lg"></i> Додати рядок</button></td>
+                                <td><button type="button" class="btn btn-sm btn-outline-primary" @click="addItem"><i class="bi bi-plus-lg"></i> Додати рядок</button></td>
                                 <td colspan="2" class="text-end fw-bold">Всього:</td>
-                                <td><span id="grandTotal" class="fw-bold">0.00</span></td>
+                                <td><span class="fw-bold" x-text="grandTotal.toFixed(2)">0.00</span></td>
                                 <td></td>
                             </tr>
                         </tfoot>
                     </table>
                 </div>
                 <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> <?php echo $submitLabel; ?></button>
-            </form>
-        </div>
-    </div>
-    <script>
-    function escapeHtml(str) {
-        var div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
-
-    function initRow(row) {
-        var input = row.querySelector('.product-autocomplete');
-        var hidden = row.querySelector('.product-id-input');
-        var dropdown = row.querySelector('.product-dropdown');
-        if (!input || !hidden || !dropdown) return;
-
-        function selectProduct(id, name) {
-            hidden.value = id;
-            input.value = name;
-            input._lastVal = name;
-            dropdown.style.display = 'none';
-        }
-
-        function positionDropdown() {
-            var rect = input.getBoundingClientRect();
-            var top = rect.bottom;
-            var maxH = Math.min(200, window.innerHeight - rect.bottom - 20);
-            if (maxH < 80) {
-                top = Math.max(0, rect.top - 200);
-                maxH = 200;
-            }
-            dropdown.style.position = 'fixed';
-            dropdown.style.top = top + 'px';
-            dropdown.style.left = rect.left + 'px';
-            dropdown.style.width = rect.width + 'px';
-            dropdown.style.maxHeight = maxH + 'px';
-        }
-
-        function filterProducts(q) {
-            if (!q) { dropdown.style.display = 'none'; return; }
-            fetch('<?php echo BASE_URL; ?>/api/search-products.php?q=' + encodeURIComponent(q))
-                .then(function(r) {
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return r.json();
-                })
-                .then(function(data) {
-                    if (!data || data.length === 0) { dropdown.style.display = 'none'; return; }
-                    if (data.error) { console.error('API error:', data.error); dropdown.style.display = 'none'; return; }
-                    dropdown.innerHTML = data.map(function(p) {
-                        return '<button class="dropdown-item" type="button" data-id="' + p.product_id + '">' + escapeHtml(p.name) + '</button>';
-                    }).join('');
-                    positionDropdown();
-                    dropdown.style.display = 'block';
-                })
-                .catch(function(err) {
-                    console.error('Product search error:', err);
-                    dropdown.style.display = 'none';
-                });
-        }
-
-        var debounceTimer;
-        function repositionOnScroll() {
-            if (dropdown.style.display === 'block') positionDropdown();
-        }
-        window.addEventListener('scroll', repositionOnScroll, true);
-        window.addEventListener('resize', repositionOnScroll);
-
-        input.addEventListener('input', function() {
-            if (this.value !== this._lastVal) {
-                hidden.value = '';
-                this._lastVal = this.value;
-            }
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(function() { filterProducts(input.value); }, 250);
-        });
-
-        input.addEventListener('blur', function() {
-            setTimeout(function() { dropdown.style.display = 'none'; }, 200);
-        });
-
-        input.addEventListener('focus', function() {
-            if (this.value) filterProducts(this.value);
-        });
-
-        dropdown.addEventListener('click', function(e) {
-            var btn = e.target.closest('.dropdown-item');
-            if (!btn) return;
-            selectProduct(btn.dataset.id, btn.textContent);
-        });
-    }
-
-    document.querySelectorAll('#itemsBody tr').forEach(initRow);
-
-    document.getElementById('addItem')?.addEventListener('click', function() {
-        const tbody = document.getElementById('itemsBody');
-        const firstRow = tbody.querySelector('tr');
-        const newRow = firstRow.cloneNode(true);
-        newRow.querySelectorAll('input').forEach(function(i) {
-            if (i.classList.contains('product-autocomplete')) { i.value = ''; i._lastVal = ''; }
-            else if (i.classList.contains('product-id-input')) { i.value = ''; }
-            else i.value = '';
-        });
-        newRow.querySelector('.product-dropdown').innerHTML = '';
-        newRow.querySelector('.line-total').textContent = '0.00';
-        tbody.appendChild(newRow);
-        initRow(newRow);
-    });
-
-    document.addEventListener('click', function(e) {
-        if (e.target.closest('.remove-item')) {
-            const tbody = document.getElementById('itemsBody');
-            if (tbody.querySelectorAll('tr').length > 1) {
-                e.target.closest('tr').remove();
-                calcTotal();
-            }
-        }
-    });
-
-    document.addEventListener('input', function(e) {
-        if (e.target.classList.contains('price-foreign') || e.target.name.includes('quantity')) {
-            const row = e.target.closest('tr');
-            if (row) {
-                const qty = parseFloat(row.querySelector('[name*="quantity"]').value) || 0;
-                const price = parseFloat(row.querySelector('.price-foreign').value) || 0;
-                row.querySelector('.line-total').textContent = (qty * price).toFixed(2);
-                calcTotal();
-            }
-        }
-    });
-
-    function calcTotal() {
-        let total = 0;
-        document.querySelectorAll('.line-total').forEach(function(el) {
-            total += parseFloat(el.textContent) || 0;
-        });
-        document.getElementById('grandTotal').textContent = total.toFixed(2);
-    }
-    </script>
+    </form>
+</div></div>
     <?php
     include __DIR__ . '/../includes/footer.php';
     exit;

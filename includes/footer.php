@@ -1,3 +1,91 @@
+    <script>
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('itemsForm', (config = {}) => ({
+            items: [],
+            searchResults: [],
+            searchOpenIdx: -1,
+
+            init() {
+                const data = this.$el.dataset.items;
+                this.items = data ? JSON.parse(data) : [];
+                if (this.items.length === 0) {
+                    this.items.push(this.emptyItem());
+                }
+            },
+
+            emptyItem() {
+                return { product_id: 0, name: '', qty: 1, price: 0, prices: {} };
+            },
+
+            get grandTotal() {
+                return this.items.reduce((s, i) => s + (parseFloat(i.qty) || 0) * (parseFloat(i.price) || 0), 0);
+            },
+
+            addItem() {
+                this.items.push(this.emptyItem());
+                this.$nextTick(() => {
+                    const rows = this.$el.querySelectorAll('[data-idx]');
+                    const last = rows[rows.length - 1];
+                    if (last) last.querySelector('.product-autocomplete')?.focus();
+                });
+            },
+
+            removeItem(idx) {
+                if (this.items.length > 1) this.items.splice(idx, 1);
+            },
+
+            async searchProduct(idx, q) {
+                this.searchOpenIdx = idx;
+                if (!q.trim()) { this.searchResults = []; return; }
+                try {
+                    const url = (config.searchUrl || '/api/search-products.php') + '?q=' + encodeURIComponent(q);
+                    const r = await fetch(url);
+                    const data = await r.json();
+                    this.searchResults = data || [];
+                    this.$nextTick(() => this.positionDropdown(idx));
+                } catch (e) {
+                    this.searchResults = [];
+                }
+            },
+
+            positionDropdown(idx) {
+                const row = this.$el.querySelector(`[data-idx="${idx}"]`);
+                if (!row) return;
+                const input = row.querySelector('.product-autocomplete');
+                const dropdown = row.querySelector('.product-dropdown');
+                if (!input || !dropdown) return;
+                const rect = input.getBoundingClientRect();
+                dropdown.style.position = 'fixed';
+                dropdown.style.top = rect.bottom + 'px';
+                dropdown.style.left = rect.left + 'px';
+                dropdown.style.width = rect.width + 'px';
+                dropdown.style.maxHeight = Math.min(200, window.innerHeight - rect.bottom - 20) + 'px';
+            },
+
+            selectProduct(product) {
+                const idx = this.searchOpenIdx;
+                if (idx < 0 || idx >= this.items.length) return;
+                const item = this.items[idx];
+                item.product_id = parseInt(product.product_id);
+                item.name = product.name;
+                item.prices = {
+                    retail: parseFloat(product.price_retail) || 0,
+                    semi: parseFloat(product.price_semi_wholesale) || 0,
+                    wholesale: parseFloat(product.price_wholesale) || 0,
+                };
+                this.searchResults = [];
+                this.searchOpenIdx = -1;
+            },
+
+            setPrice(idx, type) {
+                const item = this.items[idx];
+                if (item && item.prices && item.prices[type] != null) {
+                    item.price = item.prices[type];
+                }
+            },
+        }));
+    });
+    </script>
     </div>
 
     <footer class="bg-dark text-light py-3 mt-5">

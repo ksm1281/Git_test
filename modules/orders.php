@@ -107,12 +107,21 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $orderId = (int)$pdo->lastInsertId();
         }
 
+        $errorRows = [];
         $total = 0;
         for ($i = 0; $i < count($productIds); $i++) {
             $pid = (int)($productIds[$i] ?? 0);
             $qty = (float)($quantities[$i] ?? 0);
             $price = (float)($prices[$i] ?? 0);
-            if ($pid <= 0 || $qty <= 0) continue;
+
+            if ($pid <= 0) {
+                $errorRows[] = 'Рядок ' . ($i + 1) . ': не вибрано товар';
+                continue;
+            }
+            if ($qty <= 0) {
+                $errorRows[] = 'Рядок ' . ($i + 1) . ': некоректна кількість';
+                continue;
+            }
 
             $lineTotal = $qty * $price;
             $total += $lineTotal;
@@ -126,6 +135,16 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             if (in_array($statusName, ['processed', 'completed', 'shipped', 'delivered'])) {
                 $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, user_id, notes) VALUES (?, 'out', ?, ?, 'order', ?, ?, ?)");
                 $stmt->execute([$pid, $qty, $costPrice, $orderId, $user['user_id'], 'Замовлення #' . $orderId]);
+            }
+        }
+
+        if (!empty($errorRows)) {
+            $pdo->rollBack();
+            flashMessage('error', implode('<br>', $errorRows));
+            if ($orderId) {
+                redirect(BASE_URL . '/modules/orders.php?action=edit&id=' . $orderId);
+            } else {
+                redirect(BASE_URL . '/modules/orders.php?action=create');
             }
         }
 
@@ -568,9 +587,29 @@ if ($action === 'create' || $action === 'edit') {
         $stmt->execute([$orderId]);
         $order = $stmt->fetch();
         if (!$order) { flashMessage('error', 'Замовлення не знайдено'); redirect(BASE_URL . '/modules/orders.php'); }
-        $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id=?");
+        $stmt = $pdo->prepare("SELECT op.*, p.name as product_name, p.price_retail, p.price_semi_wholesale, p.price_wholesale FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id=?");
         $stmt->execute([$orderId]);
         $items = $stmt->fetchAll();
+    }
+
+    $alpineItems = [];
+    if ($isEdit && !empty($items)) {
+        foreach ($items as $item) {
+            $alpineItems[] = [
+                'product_id' => (int)$item['product_id'],
+                'name' => $item['product_name'] ?? '',
+                'qty' => (float)$item['quantity'],
+                'price' => (float)$item['price'],
+                'prices' => [
+                    'retail' => (float)($item['price_retail'] ?? 0),
+                    'semi' => (float)($item['price_semi_wholesale'] ?? 0),
+                    'wholesale' => (float)($item['price_wholesale'] ?? 0),
+                ],
+            ];
+        }
+    }
+    if (empty($alpineItems)) {
+        $alpineItems[] = ['product_id' => 0, 'name' => '', 'qty' => 1, 'price' => 0, 'prices' => []];
     }
 
     $title = $isEdit ? 'Редагувати замовлення #' . $orderId : 'Нове замовлення';
@@ -587,7 +626,9 @@ if ($action === 'create' || $action === 'edit') {
     </div>
     <div class="card">
         <div class="card-body">
-            <form method="post" action="?action=<?php echo $formAction; ?>" id="orderForm">
+            <form method="post" action="?action=<?php echo $formAction; ?>" id="orderForm"
+                  x-data="itemsForm({ searchUrl: '<?php echo BASE_URL; ?>/api/search-products.php' })"
+                  data-items="<?php echo htmlspecialchars(json_encode($alpineItems), ENT_QUOTES, 'UTF-8'); ?>">
                 <div class="row g-3 mb-3">
                     <div class="col-md-12">
                         <label class="form-label">Пошук клієнта <small class="text-muted">(введіть ім'я, телефон або email)</small></label>
@@ -716,7 +757,7 @@ if ($action === 'create' || $action === 'edit') {
 
                 <h6 class="fw-bold mb-2">Товари</h6>
                 <div class="table-container">
-                    <table class="table table-bordered" id="itemsTable">
+                    <table class="table table-bordered">
                         <thead>
                             <tr>
                                 <th style="width:40%;">Товар</th>
@@ -726,50 +767,54 @@ if ($action === 'create' || $action === 'edit') {
                                 <th style="width:5%;"></th>
                             </tr>
                         </thead>
-                        <tbody id="itemsBody">
-                            <?php if ($isEdit && count($items) > 0): ?>
-                                <?php foreach ($items as $item): ?>
-                                <tr>
-                                    <td class="position-relative">
-                                        <input type="text" class="form-control form-control-sm product-autocomplete" placeholder="Пошук товару..." autocomplete="off" value="<?php echo $item['product_id'] ? escape($item['product_name'] ?? '') : ''; ?>">
-                                        <input type="hidden" name="product_id[]" class="product-id-input" value="<?php echo (int)$item['product_id']; ?>">
-                                        <div class="product-dropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;"></div>
-                                        <div class="price-chips d-none mt-1 small">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="retail" title="Роздріб">Роздріб</button>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="semi" title="Дрібний опт">Дріб.опт</button>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="wholesale" title="Опт">Опт</button>
-                                        </div>
-                                    </td>
-                                    <td><input type="number" name="quantity[]" class="form-control" step="1" min="1" inputmode="numeric" required value="<?php echo (int)$item['quantity']; ?>"></td>
-                                    <td><input type="number" name="price[]" class="form-control price-input" step="0.01" min="0" required value="<?php echo (float)$item['price']; ?>"></td>
-                                    <td><span class="line-total fw-bold"><?php echo number_format((float)$item['total'], 2); ?></span></td>
-                                    <td><button type="button" class="btn btn-outline-danger btn-sm remove-item"><i class="bi bi-trash"></i></button></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                            <tr>
+                        <tbody>
+                            <template x-for="(item, idx) in items" :key="idx">
+                            <tr :data-idx="idx">
                                 <td class="position-relative">
-                                    <input type="text" class="form-control form-control-sm product-autocomplete" placeholder="Пошук товару..." autocomplete="off">
-                                    <input type="hidden" name="product_id[]" class="product-id-input" value="">
-                                    <div class="product-dropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;"></div>
-                                    <div class="price-chips d-none mt-1 small">
-                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="retail" title="Роздріб">Роздріб</button>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="semi" title="Дрібний опт">Дріб.опт</button>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1 price-chip" data-type="wholesale" title="Опт">Опт</button>
+                                    <input type="text" class="form-control form-control-sm product-autocomplete"
+                                           placeholder="Пошук товару..." autocomplete="off"
+                                           x-model="item.name"
+                                           @input.debounce.300ms="searchProduct(idx, $event.target.value)"
+                                           @focus="if(item.name) searchProduct(idx, item.name)"
+                                           @keydown.escape="searchOpenIdx = -1"
+                                           @blur="setTimeout(() => searchOpenIdx = -1, 200)">
+                                    <input type="hidden" name="product_id[]" x-model="item.product_id">
+                                    <div class="product-dropdown" x-cloak
+                                         x-show="searchOpenIdx === idx && searchResults.length > 0"
+                                         style="z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;">
+                                        <template x-for="p in searchResults" :key="p.product_id">
+                                            <button type="button" class="dropdown-item"
+                                                    @mousedown.prevent="selectProduct(p)">
+                                                <span x-text="p.name"></span>
+                                                <small class="text-muted" x-show="p.price_retail > 0"
+                                                       x-text="' - ' + parseFloat(p.price_retail).toFixed(2) + ' ₴'"></small>
+                                            </button>
+                                        </template>
+                                    </div>
+                                    <div class="mt-1 small" x-show="item.prices && (item.prices.retail || item.prices.semi || item.prices.wholesale)">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                                :class="{'active': item.price === item.prices.retail}"
+                                                @click="setPrice(idx, 'retail')">Роздріб</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                                :class="{'active': item.price === item.prices.semi}"
+                                                @click="setPrice(idx, 'semi')">Дріб.опт</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                                :class="{'active': item.price === item.prices.wholesale}"
+                                                @click="setPrice(idx, 'wholesale')">Опт</button>
                                     </div>
                                 </td>
-                                <td><input type="number" name="quantity[]" class="form-control" step="1" min="1" inputmode="numeric" required></td>
-                                <td><input type="number" name="price[]" class="form-control price-input" step="0.01" min="0" required></td>
-                                <td><span class="line-total fw-bold">0.00</span></td>
-                                <td><button type="button" class="btn btn-outline-danger btn-sm remove-item"><i class="bi bi-trash"></i></button></td>
+                                <td><input type="number" name="quantity[]" class="form-control" x-model="item.qty" step="1" min="1" inputmode="numeric"></td>
+                                <td><input type="number" name="price[]" class="form-control price-input" x-model="item.price" step="0.01" min="0"></td>
+                                <td><span class="fw-bold" x-text="(item.qty * item.price).toFixed(2)"></span></td>
+                                <td><button type="button" class="btn btn-outline-danger btn-sm" @click="removeItem(idx)"><i class="bi bi-trash"></i></button></td>
                             </tr>
-                            <?php endif; ?>
+                            </template>
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td><button type="button" class="btn btn-sm btn-outline-primary" id="addItem"><i class="bi bi-plus-lg"></i> Додати рядок</button></td>
+                                <td><button type="button" class="btn btn-sm btn-outline-primary" @click="addItem"><i class="bi bi-plus-lg"></i> Додати рядок</button></td>
                                 <td colspan="2" class="text-end fw-bold">Всього:</td>
-                                <td><span id="grandTotal" class="fw-bold">0.00</span></td>
+                                <td><span class="fw-bold" x-text="grandTotal.toFixed(2)">0.00</span></td>
                                 <td></td>
                             </tr>
                         </tfoot>
@@ -833,175 +878,6 @@ if ($action === 'create' || $action === 'edit') {
     }
     toggleDeliveryFields();
 
-    function initRow(row) {
-        var input = row.querySelector('.product-autocomplete');
-        var hidden = row.querySelector('.product-id-input');
-        var dropdown = row.querySelector('.product-dropdown');
-        var chips = row.querySelector('.price-chips');
-        if (!input || !hidden || !dropdown) return;
-
-        function selectProduct(id, name, prices) {
-            hidden.value = id;
-            input.value = name;
-            input._lastVal = name;
-            row._prices = prices;
-            dropdown.style.display = 'none';
-            if (chips) {
-                chips.classList.remove('d-none');
-                chips.querySelectorAll('.price-chip').forEach(function(c) { c.classList.remove('active'); });
-            }
-            var priceInput = row.querySelector('.price-input');
-            if (priceInput && prices) {
-                var val = prices.retail || prices.semi || prices.wholesale || 0;
-                priceInput.value = val.toFixed(2);
-                priceInput.dispatchEvent(new Event('input', { bubbles: true }));
-                if (chips) {
-                    chips.querySelector('.price-chip[data-type="retail"]')?.classList.add('active');
-                }
-            }
-        }
-
-        function positionDropdown() {
-            var rect = input.getBoundingClientRect();
-            var top = rect.bottom;
-            var maxH = Math.min(200, window.innerHeight - rect.bottom - 20);
-            if (maxH < 80) {
-                top = Math.max(0, rect.top - 200);
-                maxH = 200;
-            }
-            dropdown.style.position = 'fixed';
-            dropdown.style.top = top + 'px';
-            dropdown.style.left = rect.left + 'px';
-            dropdown.style.width = rect.width + 'px';
-            dropdown.style.maxHeight = maxH + 'px';
-        }
-
-        function filterProducts(q) {
-            if (!q) { dropdown.style.display = 'none'; return; }
-            fetch('<?php echo BASE_URL; ?>/api/search-products.php?q=' + encodeURIComponent(q))
-                .then(function(r) {
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return r.json();
-                })
-                .then(function(data) {
-                    if (!data || data.length === 0) { dropdown.style.display = 'none'; return; }
-                    if (data.error) { console.error('API error:', data.error); dropdown.style.display = 'none'; return; }
-                    dropdown.innerHTML = data.map(function(p) {
-                        var price = parseFloat(p.price_retail) ? ' - ' + parseFloat(p.price_retail).toFixed(2) + ' ₴' : '';
-                        return '<button class="dropdown-item" type="button" data-id="' + p.product_id + '" data-retail="' + (p.price_retail || 0) + '" data-wholesale="' + (p.price_wholesale || 0) + '" data-semi="' + (p.price_semi_wholesale || 0) + '">' + escapeHtml(p.name) + price + '</button>';
-                    }).join('');
-                    positionDropdown();
-                    dropdown.style.display = 'block';
-                })
-                .catch(function(err) {
-                    console.error('Product search error:', err);
-                    dropdown.style.display = 'none';
-                });
-        }
-
-        var debounceTimer;
-        function repositionOnScroll() {
-            if (dropdown.style.display === 'block') positionDropdown();
-        }
-        window.addEventListener('scroll', repositionOnScroll, true);
-        window.addEventListener('resize', repositionOnScroll);
-
-        input.addEventListener('input', function() {
-            if (this.value !== this._lastVal) {
-                hidden.value = '';
-                this._lastVal = this.value;
-                if (chips) chips.classList.add('d-none');
-            }
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(function() { filterProducts(input.value); }, 250);
-        });
-
-        input.addEventListener('blur', function() {
-            setTimeout(function() { dropdown.style.display = 'none'; }, 200);
-        });
-
-        input.addEventListener('focus', function() {
-            if (this.value) filterProducts(this.value);
-        });
-
-        dropdown.addEventListener('click', function(e) {
-            var btn = e.target.closest('.dropdown-item');
-            if (!btn) return;
-            var id = btn.dataset.id;
-            var prices = { retail: parseFloat(btn.dataset.retail) || 0, wholesale: parseFloat(btn.dataset.wholesale) || 0, semi: parseFloat(btn.dataset.semi) || 0 };
-            selectProduct(id, btn.textContent.replace(/ - [\d.]+ ₴$/, ''), prices);
-        });
-
-        if (chips) {
-            chips.addEventListener('click', function(e) {
-                var chip = e.target.closest('.price-chip');
-                if (!chip || !row._prices) return;
-                chips.querySelectorAll('.price-chip').forEach(function(c) { c.classList.remove('active'); });
-                chip.classList.add('active');
-                var type = chip.dataset.type;
-                var priceInput = row.querySelector('.price-input');
-                if (priceInput) {
-                    priceInput.value = (row._prices[type] || 0).toFixed(2);
-                    priceInput.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-            });
-
-            var priceInput = row.querySelector('.price-input');
-            if (priceInput) {
-                priceInput.addEventListener('input', function() {
-                    chips.querySelectorAll('.price-chip').forEach(function(c) { c.classList.remove('active'); });
-                });
-            }
-        }
-
-    }
-
-    function escapeHtml(str) {
-        var div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
-
-    document.querySelectorAll('#itemsBody tr').forEach(initRow);
-
-    document.getElementById('addItem')?.addEventListener('click', function() {
-        const tbody = document.getElementById('itemsBody');
-        const firstRow = tbody.querySelector('tr');
-        const newRow = firstRow.cloneNode(true);
-        newRow.querySelectorAll('input').forEach(function(i) {
-            if (i.classList.contains('product-autocomplete')) { i.value = ''; i._lastVal = ''; }
-            else if (i.classList.contains('product-id-input')) { i.value = ''; }
-            else i.value = '';
-        });
-        newRow.querySelector('.product-dropdown').innerHTML = '';
-        var chips = newRow.querySelector('.price-chips');
-        if (chips) chips.classList.add('d-none');
-        newRow.querySelector('.line-total').textContent = '0.00';
-        tbody.appendChild(newRow);
-        initRow(newRow);
-    });
-
-    document.addEventListener('click', function(e) {
-        if (e.target.closest('.remove-item')) {
-            const tbody = document.getElementById('itemsBody');
-            if (tbody.querySelectorAll('tr').length > 1) {
-                e.target.closest('tr').remove();
-                calcTotal();
-            }
-        }
-    });
-
-    document.addEventListener('input', function(e) {
-        if (e.target.classList.contains('price-input') || e.target.name.includes('quantity')) {
-            const row = e.target.closest('tr');
-            if (row) {
-                const qty = parseFloat(row.querySelector('[name*="quantity"]').value) || 0;
-                const price = parseFloat(row.querySelector('.price-input').value) || 0;
-                row.querySelector('.line-total').textContent = (qty * price).toFixed(2);
-                calcTotal();
-            }
-        }
-    });
 
     // Customer autocomplete — AJAX
     (function() {
@@ -1219,14 +1095,6 @@ if ($action === 'create' || $action === 'edit') {
 
     document.getElementById('orderTelephone').addEventListener('input', updateMessengerLinks);
     updateMessengerLinks();
-
-    function calcTotal() {
-        let total = 0;
-        document.querySelectorAll('.line-total').forEach(function(el) {
-            total += parseFloat(el.textContent) || 0;
-        });
-        document.getElementById('grandTotal').textContent = total.toFixed(2);
-    }
     </script>
     <?php
     include __DIR__ . '/../includes/footer.php';

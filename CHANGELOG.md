@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.0] — 2026-06-07
+
+### Змінено
+- **modules/orders.php**: міграція таблиці товарів на Alpine.js — реактивні суми рядка й загального підсумку, автокомпліт, додавання/видалення рядків
+- **modules/incoming.php**: така ж міграція на Alpine.js — видалено ~130 рядків старого vanilla JS коду
+- **includes/header.php**: додано Alpine.js (CDN) та CSS `[x-cloak]`
+- **includes/footer.php**: зареєстровано Alpine-компонент `itemsForm` (inline)
+- **modules/incoming.php, modules/orders.php**: додано серверну валідацію — рядки без товару або з нульовою кількістю відхиляються з помилкою
+
 ## [1.8.1] — 2026-06-06
 
 ### Додано
