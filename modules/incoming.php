@@ -132,13 +132,16 @@ if ($action === 'import' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $tf = $r['qty'] * $r['price'];
             $tl = $tf * $rate;
+            $pl = $r['price'] * $rate;
             $totalForeign += $tf;
             $totalLocal += $tl;
 
             $stmt = $pdo->prepare("INSERT INTO erp_invoice_items (invoice_id, product_id, quantity, price_foreign, price_local, total_foreign, total_local) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$invoiceId, $pid, $r['qty'], $r['price'], $r['price'] * $rate, $tf, $tl]);
+            $stmt->execute([$invoiceId, $pid, $r['qty'], $r['price'], $pl, $tf, $tl]);
             $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, user_id, notes) VALUES (?, 'in', ?, ?, 'invoice', ?, ?, ?)");
-            $stmt->execute([$pid, $r['qty'], $r['price'], $invoiceId, $user['user_id'], 'Імпорт: ' . $invoiceNumber]);
+            $stmt->execute([$pid, $r['qty'], $pl, $invoiceId, $user['user_id'], 'Імпорт: ' . $invoiceNumber]);
+            $pdo->prepare("UPDATE erp_products SET price_purchase = ? WHERE product_id = ? AND (? > 0)")
+                ->execute([$pl, $pid, $pl]);
             $matched++;
         }
 
@@ -200,14 +203,18 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $tf = $qty * $pf;
             $tl = $tf * $rate;
+            $pl = $pf * $rate;
             $totalForeign += $tf;
             $totalLocal += $tl;
 
             $stmt = $pdo->prepare("INSERT INTO erp_invoice_items (invoice_id, product_id, quantity, price_foreign, price_local, total_foreign, total_local) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$invoiceId, $pid, $qty, $pf, $pf * $rate, $tf, $tl]);
+            $stmt->execute([$invoiceId, $pid, $qty, $pf, $pl, $tf, $tl]);
 
             $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, user_id, notes) VALUES (?, 'in', ?, ?, 'invoice', ?, ?, ?)");
-            $stmt->execute([$pid, $qty, $pf, $invoiceId, $user['user_id'], 'Накладна ' . $invoiceNumber]);
+            $stmt->execute([$pid, $qty, $pl, $invoiceId, $user['user_id'], 'Накладна ' . $invoiceNumber]);
+
+            $pdo->prepare("UPDATE erp_products SET price_purchase = ? WHERE product_id = ? AND (? > 0)")
+                ->execute([$pl, $pid, $pl]);
         }
 
         if (!empty($errorRows)) {
@@ -282,14 +289,18 @@ if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId)
 
             $tf = $qty * $pf;
             $tl = $tf * $rate;
+            $pl = $pf * $rate;
             $totalForeign += $tf;
             $totalLocal += $tl;
 
             $stmt = $pdo->prepare("INSERT INTO erp_invoice_items (invoice_id, product_id, quantity, price_foreign, price_local, total_foreign, total_local) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$invoiceId, $pid, $qty, $pf, $pf * $rate, $tf, $tl]);
+            $stmt->execute([$invoiceId, $pid, $qty, $pf, $pl, $tf, $tl]);
 
             $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, user_id, notes) VALUES (?, 'in', ?, ?, 'invoice', ?, ?, ?)");
-            $stmt->execute([$pid, $qty, $pf, $invoiceId, $user['user_id'], 'Накладна ' . $invoiceNumber]);
+            $stmt->execute([$pid, $qty, $pl, $invoiceId, $user['user_id'], 'Накладна ' . $invoiceNumber]);
+
+            $pdo->prepare("UPDATE erp_products SET price_purchase = ? WHERE product_id = ? AND (? > 0)")
+                ->execute([$pl, $pid, $pl]);
         }
 
         if (!empty($errorRows)) {
