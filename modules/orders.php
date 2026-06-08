@@ -779,11 +779,11 @@ if ($action === 'create' || $action === 'edit') {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-3" x-show="deliveryMethod !== 'pickup'" x-cloak>
                         <label class="form-label">Номер ТТН</label>
                         <input type="text" name="ttn_number" class="form-control" value="<?php echo $isEdit ? escape($order['ttn_number']) : ''; ?>" placeholder="Транспортний номер">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-3" x-show="deliveryMethod !== 'pickup'" x-cloak>
                         <label class="form-label">Статус доставки</label>
                         <select name="delivery_status" class="form-select">
                             <option value="new" <?php echo $isEdit && $order['delivery_status'] === 'new' ? 'selected' : ''; ?>>Нове</option>
@@ -1043,6 +1043,7 @@ if ($action === 'view' && $orderId) {
                                 }
                             ?></div>
                         </div>
+                        <?php if ($order['delivery_method'] !== 'pickup'): ?>
                         <div class="row g-3 mb-3">
                             <div class="col-md-4">
                                 <small class="text-muted">Номер ТТН</small>
@@ -1056,6 +1057,7 @@ if ($action === 'view' && $orderId) {
                                 ?></div>
                             </div>
                         </div>
+                        <?php endif; ?>
                         <div class="col-12">
                             <small class="text-muted">Примітки</small>
                             <div><?php echo escape($order['erp_notes'] ?: '-'); ?></div>
