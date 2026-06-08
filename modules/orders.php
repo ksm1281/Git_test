@@ -126,7 +126,7 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $lineTotal = $qty * $price;
             $total += $lineTotal;
 
-            $costPrice = getProductCostPrice($pdo, $pid);
+            $costPrice = getProductCostPrice($pdo, $pid, $qty);
             $profit = $lineTotal - ($costPrice * $qty);
 
             $stmt = $pdo->prepare("INSERT INTO erp_order_products (order_id, product_id, name, quantity, price, total, cost_price, profit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");

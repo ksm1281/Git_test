@@ -636,22 +636,39 @@ function logActivity($pdo, $type, $message, $source = null, $data = null, $userI
     $stmt->execute([$type, $source, $message, $dataJson, $userId]);
 }
 
-function getProductCostPrice($pdo, $productId) {
+function getProductCostPrice($pdo, $productId, $quantity = 1) {
     $stmt = $pdo->prepare("
-        SELECT CASE WHEN SUM(sm.quantity) > 0
-            THEN SUM(sm.cost_price * sm.quantity) / SUM(sm.quantity)
-            ELSE 0 END as avg_cost
+        SELECT sm.cost_price, sm.quantity, sm.date_added
         FROM erp_stock_moves sm
         WHERE sm.product_id = ? AND sm.type IN ('in', 'return_in') AND sm.cost_price > 0
+        ORDER BY sm.date_added ASC
     ");
     $stmt->execute([$productId]);
-    $result = $stmt->fetch();
-    $cost = (float)$result['avg_cost'];
-    if ($cost > 0) return $cost;
-    $stmt = $pdo->prepare("SELECT price_purchase FROM erp_products WHERE product_id = ?");
+    $inMoves = $stmt->fetchAll();
+    if (empty($inMoves)) {
+        $stmt = $pdo->prepare("SELECT price_purchase FROM erp_products WHERE product_id = ?");
+        $stmt->execute([$productId]);
+        $row = $stmt->fetch();
+        return $row ? (float)$row['price_purchase'] : 0;
+    }
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(quantity), 0) FROM erp_stock_moves WHERE product_id = ? AND type = 'out'");
     $stmt->execute([$productId]);
-    $row = $stmt->fetch();
-    return $row ? (float)$row['price_purchase'] : 0;
+    $soldQty = (float)$stmt->fetchColumn();
+    $toSkip = $soldQty;
+    $need = $quantity;
+    $totalCost = 0;
+    foreach ($inMoves as $move) {
+        $batchQty = (float)$move['quantity'];
+        $costPrice = (float)$move['cost_price'];
+        if ($toSkip >= $batchQty) { $toSkip -= $batchQty; continue; }
+        $available = $batchQty - $toSkip;
+        $take = min($available, $need);
+        $totalCost += $take * $costPrice;
+        $need -= $take;
+        $toSkip = 0;
+        if ($need <= 0) break;
+    }
+    return $quantity > 0 ? ($totalCost / $quantity) : 0;
 }
 
 function getProductStock($pdo, $productId) {
