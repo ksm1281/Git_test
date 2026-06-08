@@ -127,6 +127,9 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $total += $lineTotal;
 
             $costPrice = getProductCostPrice($pdo, $pid, $qty);
+            if ($costPrice > 0 && $price < $costPrice) {
+                $_SESSION['warning_below_cost'] = true;
+            }
             $profit = $lineTotal - ($costPrice * $qty);
 
             $stmt = $pdo->prepare("INSERT INTO erp_order_products (order_id, product_id, name, quantity, price, total, cost_price, profit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
@@ -196,6 +199,10 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        if (!empty($_SESSION['warning_below_cost'])) {
+            unset($_SESSION['warning_below_cost']);
+            flashMessage('warning', 'Деякі товари продано нижче собівартості');
+        }
         flashMessage('success', 'Замовлення #' . $orderId . ' збережено');
         redirect(BASE_URL . '/modules/orders.php?action=view&id=' . $orderId);
     } catch (Exception $e) {

@@ -105,7 +105,7 @@ $currentPage = basename($_SERVER['PHP_SELF']);
 
     <div class="container-fluid py-3">
         <?php if ($flash): ?>
-        <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : 'danger'; ?> alert-dismissible fade show">
+        <div class="alert alert-<?php echo $flash['type'] === 'success' ? 'success' : ($flash['type'] === 'warning' ? 'warning' : 'danger'); ?> alert-dismissible fade show">
             <?php echo escape($flash['message']); ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
