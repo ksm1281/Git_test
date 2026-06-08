@@ -84,6 +84,410 @@
                 }
             },
         }));
+
+        Alpine.data('orderForm', () => ({
+            items: [],
+            searchResults: [],
+            searchOpenIdx: -1,
+
+            _searchUrl: '',
+            _searchCustomersUrl: '',
+            _npApiUrl: '',
+
+            deliveryMethod: '',
+            customerQuery: '',
+            customerResults: [],
+            customerOpen: false,
+
+            npCityQuery: '',
+            npCityHidden: '',
+            npCityRef: '',
+            npCityResults: [],
+            npCityOpen: false,
+
+            npWarehouseQuery: '',
+            npWarehouseHidden: '',
+            npWarehouseResults: [],
+            npWarehouseOpen: false,
+
+            telephone: '',
+
+            init() {
+                const d = this.$el.dataset;
+                this._searchUrl = d.searchUrl || '/api/search-products.php';
+                this._searchCustomersUrl = d.searchCustomersUrl || '/api/search-customers.php';
+                this._npApiUrl = d.npApiUrl || '/api/nova-poshta.php';
+                this.deliveryMethod = d.deliveryMethod || '';
+                this.customerQuery = d.customerName || '';
+                this.npCityQuery = d.npCity || '';
+                this.npCityHidden = d.npCity || '';
+                this.npCityRef = d.npCityRef || '';
+                this.npWarehouseQuery = d.npWarehouse || '';
+                this.npWarehouseHidden = d.npWarehouse || '';
+                this.telephone = d.telephone || '';
+
+                const data = d.items;
+                this.items = data ? JSON.parse(data) : [];
+                if (this.items.length === 0) {
+                    this.items.push(this.emptyItem());
+                }
+            },
+
+            emptyItem() {
+                return { product_id: 0, name: '', qty: 1, price: 0, prices: {} };
+            },
+
+            get grandTotal() {
+                return this.items.reduce((s, i) => s + (parseFloat(i.qty) || 0) * (parseFloat(i.price) || 0), 0);
+            },
+
+            addItem() {
+                this.items.push(this.emptyItem());
+                this.$nextTick(() => {
+                    const rows = this.$el.querySelectorAll('[data-idx]');
+                    const last = rows[rows.length - 1];
+                    if (last) last.querySelector('.product-autocomplete')?.focus();
+                });
+            },
+
+            removeItem(idx) {
+                if (this.items.length > 1) this.items.splice(idx, 1);
+            },
+
+            async searchProduct(idx, q) {
+                this.searchOpenIdx = idx;
+                if (!q.trim()) { this.searchResults = []; return; }
+                try {
+                    const url = (this._searchUrl || '/api/search-products.php') + '?q=' + encodeURIComponent(q);
+                    const r = await fetch(url);
+                    const data = await r.json();
+                    this.searchResults = data || [];
+                    this.$nextTick(() => this.positionDropdown(idx));
+                } catch (e) {
+                    this.searchResults = [];
+                }
+            },
+
+            positionDropdown(idx) {
+                const row = this.$el.querySelector(`[data-idx="${idx}"]`);
+                if (!row) return;
+                const input = row.querySelector('.product-autocomplete');
+                const dropdown = row.querySelector('.product-dropdown');
+                if (!input || !dropdown) return;
+                const rect = input.getBoundingClientRect();
+                dropdown.style.position = 'fixed';
+                dropdown.style.top = rect.bottom + 'px';
+                dropdown.style.left = rect.left + 'px';
+                dropdown.style.width = rect.width + 'px';
+                dropdown.style.maxHeight = Math.min(200, window.innerHeight - rect.bottom - 20) + 'px';
+            },
+
+            selectProduct(product) {
+                const idx = this.searchOpenIdx;
+                if (idx < 0 || idx >= this.items.length) return;
+                const item = this.items[idx];
+                item.product_id = parseInt(product.product_id);
+                item.name = product.name;
+                item.prices = {
+                    retail: parseFloat(product.price_retail) || 0,
+                    semi: parseFloat(product.price_semi_wholesale) || 0,
+                    wholesale: parseFloat(product.price_wholesale) || 0,
+                };
+                this.searchResults = [];
+                this.searchOpenIdx = -1;
+            },
+
+            setPrice(idx, type) {
+                const item = this.items[idx];
+                if (item && item.prices && item.prices[type] != null) {
+                    item.price = item.prices[type];
+                }
+            },
+
+            async searchCustomer() {
+                const q = this.customerQuery.trim();
+                if (q.length < 1) { this.customerResults = []; this.customerOpen = false; return; }
+                try {
+                    const r = await fetch(this._searchCustomersUrl + '?q=' + encodeURIComponent(q));
+                    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
+                    const data = await r.json();
+                    this.customerResults = data && !data.error ? data : [];
+                    this.customerOpen = this.customerResults.length > 0;
+                } catch (e) {
+                    console.error('Customer search error:', e);
+                    this.customerResults = [{ _error: 'Помилка: ' + e.message }];
+                    this.customerOpen = true;
+                }
+            },
+
+            selectCustomer(c) {
+                this.customerQuery = ((c.firstname || '') + ' ' + (c.lastname || '')).trim();
+                if (this.$refs.orderFirstname) this.$refs.orderFirstname.value = c.firstname || '';
+                if (this.$refs.orderLastname) this.$refs.orderLastname.value = c.lastname || '';
+                if (this.$refs.orderEmail) this.$refs.orderEmail.value = c.email || '';
+                this.telephone = c.telephone || '';
+                this.customerOpen = false;
+            },
+
+            closeCustomer() {
+                setTimeout(() => { this.customerOpen = false; }, 200);
+            },
+
+            async searchNpCity() {
+                const q = this.npCityQuery.trim();
+                if (q.length < 1) { this.npCityResults = []; this.npCityOpen = false; return; }
+                try {
+                    const r = await fetch(this._npApiUrl + '?action=cities&q=' + encodeURIComponent(q));
+                    const data = await r.json();
+                    if (data.error) {
+                        this.npCityResults = [{ _error: data.error }];
+                        this.npCityOpen = true;
+                        return;
+                    }
+                    this.npCityResults = data || [];
+                    this.npCityOpen = this.npCityResults.length > 0;
+                } catch (e) {
+                    console.error('NP city error:', e);
+                    this.npCityResults = [];
+                    this.npCityOpen = false;
+                }
+            },
+
+            selectNpCity(city) {
+                this.npCityQuery = city.name;
+                this.npCityHidden = city.name;
+                this.npCityRef = city.ref;
+                this.npCityOpen = false;
+                this.$nextTick(() => {
+                    const hidden = this.$el.querySelector('[name="np_warehouse"]');
+                    if (hidden) {
+                        const wrapper = hidden.closest('.position-relative');
+                        const inp = wrapper ? wrapper.querySelector('input[type="text"]') : null;
+                        if (inp) inp.focus();
+                    }
+                });
+            },
+
+            closeNpCity() {
+                setTimeout(() => { this.npCityOpen = false; }, 200);
+            },
+
+            async searchNpWarehouse() {
+                const q = this.npWarehouseQuery.trim();
+                if (!this.npCityRef || q.length < 1) {
+                    this.npWarehouseResults = [];
+                    this.npWarehouseOpen = false;
+                    return;
+                }
+                try {
+                    const r = await fetch(this._npApiUrl + '?action=warehouses&city_ref='
+                        + encodeURIComponent(this.npCityRef) + '&q=' + encodeURIComponent(q));
+                    const data = await r.json();
+                    if (data.error) {
+                        this.npWarehouseResults = [{ _error: data.error }];
+                        this.npWarehouseOpen = true;
+                        return;
+                    }
+                    this.npWarehouseResults = data || [];
+                    this.npWarehouseOpen = this.npWarehouseResults.length > 0;
+                } catch (e) {
+                    console.error('NP warehouse error:', e);
+                    this.npWarehouseResults = [];
+                    this.npWarehouseOpen = false;
+                }
+            },
+
+            selectNpWarehouse(wh) {
+                this.npWarehouseQuery = wh.name;
+                this.npWarehouseHidden = wh.name;
+                this.npWarehouseOpen = false;
+            },
+
+            closeNpWarehouse() {
+                setTimeout(() => { this.npWarehouseOpen = false; }, 200);
+            },
+
+            get messengerTelegram() {
+                return this.telephone ? 'tg://resolve?phone=' + this._normalizePhone(this.telephone) : '#';
+            },
+
+            get messengerViber() {
+                return this.telephone ? 'viber://chat?number=' + this._normalizePhone(this.telephone) : '#';
+            },
+
+            get hasPhone() {
+                return !!this.telephone;
+            },
+
+            _normalizePhone(phone) {
+                const digits = phone.replace(/\D/g, '');
+                if (digits.length === 10 && digits.startsWith('0')) return '38' + digits;
+                if (digits.length === 9) return '380' + digits;
+                if (digits.startsWith('380')) return digits;
+                return digits;
+            }
+        }));
+
+        Alpine.data('stockPage', (config = {}) => ({
+            adjustProducts: config.products || [],
+
+            editCategory: { id: 0, name: '', sort_order: 0 },
+            editProduct: { product_id: 0, name: '', model: '', sku: '', category_ids: [], price_wholesale: '', price_semi_wholesale: '', price_retail: '', price_purchase: '' },
+            editCorrection: { move_id: 0, product_id: 0, quantity: 0, cost_price: '', notes: '' },
+            editPricing: { product_id: 0, name: '', mw: 0, ms: 0, mr: 0, use_custom: false, cpw: 0, cps: 0, cpr: 0 },
+
+            adjustQuery: '',
+            adjustResults: [],
+            adjustSelectedId: 0,
+            syncOneOpen: false,
+
+            syncing: false,
+            syncingOne: false,
+            syncingCats: false,
+            pushingPrices: false,
+            selectAllPricing: false,
+            selectAllCorr: false,
+
+            openCategoryEdit(id, name, sort) {
+                this.editCategory = { id: parseInt(id) || 0, name: name || '', sort_order: parseInt(sort) || 0 };
+                bootstrap.Modal.getOrCreateInstance(this.$refs.categoryModal).show();
+            },
+            openProductEdit(data) {
+                this.editProduct = {
+                    product_id: parseInt(data.product_id) || 0,
+                    name: data.name || '',
+                    model: data.model || '',
+                    sku: data.sku || '',
+                    category_ids: Array.from(data.category_ids || []),
+                    price_wholesale: data.price_wholesale ?? '',
+                    price_semi_wholesale: data.price_semi_wholesale ?? '',
+                    price_retail: data.price_retail ?? '',
+                    price_purchase: data.price_purchase ?? ''
+                };
+                bootstrap.Modal.getOrCreateInstance(this.$refs.editProductModal).show();
+            },
+            openCorrectionEdit(data) {
+                this.editCorrection = {
+                    move_id: parseInt(data.move_id) || 0,
+                    product_id: parseInt(data.product_id) || 0,
+                    quantity: parseFloat(data.quantity) || 0,
+                    cost_price: data.cost_price || '',
+                    notes: data.notes || ''
+                };
+                bootstrap.Modal.getOrCreateInstance(this.$refs.editCorrectionModal).show();
+            },
+            openPricingEdit(btn) {
+                this.editPricing = {
+                    product_id: parseInt(btn.dataset.productId) || 0,
+                    name: btn.dataset.name || '',
+                    mw: parseFloat(btn.dataset.mw) || 0,
+                    ms: parseFloat(btn.dataset.ms) || 0,
+                    mr: parseFloat(btn.dataset.mr) || 0,
+                    use_custom: btn.dataset.useCustom === '1',
+                    cpw: parseFloat(btn.dataset.cpw) || 0,
+                    cps: parseFloat(btn.dataset.cps) || 0,
+                    cpr: parseFloat(btn.dataset.cpr) || 0
+                };
+                bootstrap.Modal.getOrCreateInstance(this.$refs.pricingModal).show();
+            },
+            openAdjust(productId) {
+                this.adjustSelectedId = parseInt(productId) || 0;
+                this.adjustQuery = '';
+                this.adjustResults = [];
+                if (productId) {
+                    const p = this.adjustProducts.find(x => x.id === parseInt(productId));
+                    if (p) this.adjustQuery = p.name + (p.model ? ' (' + p.model + ')' : '');
+                }
+                bootstrap.Modal.getOrCreateInstance(this.$refs.adjustModal).show();
+            },
+            searchAdjust() {
+                const q = this.adjustQuery.toLowerCase().trim();
+                this.adjustSelectedId = 0;
+                if (!q) { this.adjustResults = []; return; }
+                this.adjustResults = this.adjustProducts.filter(p =>
+                    (p.name && p.name.toLowerCase().includes(q)) ||
+                    (p.model && p.model.toLowerCase().includes(q)) ||
+                    (p.sku && p.sku.toLowerCase().includes(q))
+                ).slice(0, 20);
+            },
+            selectAdjust(p) {
+                this.adjustSelectedId = p.id;
+                this.adjustQuery = p.name + (p.model ? ' (' + p.model + ')' : '');
+                this.adjustResults = [];
+            },
+            toggleSyncOneWrap() {
+                this.syncOneOpen = !this.syncOneOpen;
+            },
+            toggleAllPricing(checked) {
+                this.selectAllPricing = checked;
+                document.querySelectorAll('.pricing-checkbox').forEach(cb => cb.checked = checked);
+            },
+            toggleAllCorr(checked) {
+                this.selectAllCorr = checked;
+                document.querySelectorAll('.corr-check').forEach(cb => cb.checked = checked);
+            },
+            toggleCategory(catId) {
+                catId = parseInt(catId);
+                const i = this.editProduct.category_ids.indexOf(catId);
+                if (i >= 0) this.editProduct.category_ids.splice(i, 1);
+                else this.editProduct.category_ids.push(catId);
+            },
+            async syncProducts() {
+                if (this.syncing) return;
+                this.syncing = true;
+                try {
+                    const r = await fetch(config.syncProductsUrl || '/api/sync-products.php');
+                    const d = await r.json();
+                    if (d.error) alert('Помилка: ' + d.error);
+                    else { alert('OK! Синхронізовано ' + d.synced + ' з ' + d.total + ' товарів'); if (typeof loadSyncStatus === 'function') loadSyncStatus(); }
+                } catch (e) { alert('Помилка: ' + e.message); }
+                finally { this.syncing = false; }
+            },
+            async syncOneProduct() {
+                if (this.syncingOne) return;
+                const id = (this.$refs.syncOneId?.value || '').trim();
+                if (!id) { alert('Введіть ID або код товару'); return; }
+                this.syncingOne = true;
+                try {
+                    const r = await fetch((config.syncProductsUrl || '/api/sync-products.php') + '?code=' + encodeURIComponent(id));
+                    const d = await r.json();
+                    if (d.error) alert('Помилка: ' + d.error);
+                    else { alert('OK! Синхронізовано: ' + d.name + ' (ID ' + d.product_id + ')'); if (typeof loadSyncStatus === 'function') loadSyncStatus(); }
+                } catch (e) { alert('Помилка: ' + e.message); }
+                finally { this.syncingOne = false; }
+            },
+            async syncCategories() {
+                if (this.syncingCats) return;
+                this.syncingCats = true;
+                try {
+                    const r = await fetch(config.syncCategoriesUrl || '/api/sync-categories.php');
+                    const d = await r.json();
+                    if (d.error) alert('Помилка: ' + d.error);
+                    else { alert('OK! Синхронізовано ' + d.synced + ' категорій'); location.reload(); }
+                } catch (e) { alert('Помилка: ' + e.message); }
+                finally { this.syncingCats = false; }
+            },
+            async pushPrices() {
+                if (this.pushingPrices) return;
+                this.pushingPrices = true;
+                const checked = Array.from(document.querySelectorAll('.pricing-checkbox:checked')).map(cb => parseInt(cb.value));
+                const url = (config.pushPricesUrl || '/api/push-prices.php') + (checked.length > 0 ? '?selected=1' : '');
+                const options = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+                if (checked.length > 0) options.body = JSON.stringify({ product_ids: checked });
+                try {
+                    const r = await fetch(url, options);
+                    const d = await r.json();
+                    if (d.error) { alert('Помилка: ' + d.error); }
+                    else {
+                        let msg = '✅ Оновлено в ERP: ' + d.erp_updated + ' товарів\n✅ Відправлено на сайт: ' + d.updated + ' товарів';
+                        if (d.errors && d.errors.length) msg += '\n⚠️ Помилки: ' + d.errors.slice(0, 3).join(', ');
+                        msg += '\n\nКурси: USD ' + d.rates_used.USD + ', EUR ' + d.rates_used.EUR;
+                        alert(msg);
+                    }
+                } catch (e) { alert('Помилка запиту: ' + e.message); }
+                finally { this.pushingPrices = false; }
+            }
+        }));
     });
     </script>
     </div>
@@ -125,60 +529,6 @@
         }
     });
 
-    function syncOneProduct() {
-        var input = document.getElementById('syncOneId');
-        if (!input || !input.value.trim()) { alert('Введіть ID або код товару'); return; }
-        var val = input.value.trim();
-        var btn = event.target;
-        btn.disabled = true;
-        var orig = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>...';
-
-        fetch('<?php echo BASE_URL; ?>/api/sync-products.php?code=' + encodeURIComponent(val))
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                if (d.error) {
-                    alert('Помилка: ' + d.error);
-                } else {
-                    alert('OK! Синхронізовано: ' + d.name + ' (ID ' + d.product_id + ')');
-                }
-                loadSyncStatus();
-            })
-            .catch(function(e) {
-                alert('Помилка: ' + e.message);
-            })
-            .finally(function() {
-                btn.disabled = false;
-                btn.innerHTML = orig;
-            });
-    }
-
-    function syncProducts() {
-        var btn = document.getElementById('syncBtn') || event.target;
-        if (!btn) btn = document.querySelector('[onclick="syncProducts()"]');
-        var orig = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Синхр...';
-
-        fetch('<?php echo BASE_URL; ?>/api/sync-products.php')
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                if (d.error) {
-                    alert('Помилка: ' + d.error);
-                } else {
-                    alert('OK! Синхронізовано ' + d.synced + ' з ' + d.total + ' товарів');
-                }
-                loadSyncStatus();
-            })
-            .catch(function(e) {
-                alert('Помилка: ' + e.message);
-            })
-            .finally(function() {
-                btn.disabled = false;
-                btn.innerHTML = orig;
-            });
-    }
-
     function loadSyncStatus() {
         var el = document.getElementById('sync-status');
         if (!el) return;
@@ -197,37 +547,6 @@
             });
     }
     document.addEventListener('DOMContentLoaded', loadSyncStatus);
-
-    function editProduct(data) {
-        document.getElementById('edit_product_id').value = data.product_id;
-        document.getElementById('edit_name').value = data.name || '';
-        document.getElementById('edit_model').value = data.model || '';
-        document.getElementById('edit_sku').value = data.sku || '';
-        document.getElementById('edit_price_wholesale').value = data.price_wholesale || '';
-        document.getElementById('edit_price_semi').value = data.price_semi_wholesale || '';
-        document.getElementById('edit_price_retail').value = data.price_retail || '';
-        document.getElementById('edit_price_purchase').value = data.price_purchase || '';
-        var catDiv = document.getElementById('edit_categories');
-        if (catDiv) {
-            var ids = data.category_ids || [];
-            var checks = catDiv.querySelectorAll('input[type="checkbox"]');
-            for (var i = 0; i < checks.length; i++) {
-                checks[i].checked = ids.indexOf(parseInt(checks[i].value)) !== -1;
-            }
-        }
-        var modal = new bootstrap.Modal(document.getElementById('editProductModal'));
-        modal.show();
-    }
-
-    function editCorrection(data) {
-        document.getElementById('edit_move_id').value = data.move_id;
-        document.getElementById('edit_product_id').value = data.product_id;
-        document.getElementById('edit_quantity').value = data.quantity;
-        document.getElementById('edit_cost_price').value = data.cost_price || '';
-        document.getElementById('edit_notes').value = data.notes || '';
-        var modal = new bootstrap.Modal(document.getElementById('editCorrectionModal'));
-        modal.show();
-    }
 
     (function() {
         var storageKey = 'erp_col_widths';

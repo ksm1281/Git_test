@@ -265,13 +265,17 @@ if ($action === 'categories') {
     $categories = getCategories($pdo);
     include __DIR__ . '/../includes/header.php';
     ?>
+    <div x-data="stockPage">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="bi bi-tags"></i> Категорії товарів</h4>
         <div>
             <a href="<?php echo BASE_URL; ?>/modules/stock.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> На склад</a>
             <?php if (isAdmin()): ?>
-            <button class="btn btn-sm btn-outline-info" id="syncCatsBtn" onclick="syncCategories()"><i class="bi bi-arrow-repeat"></i> Синхр. OC</button>
-            <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#categoryModal" onclick="openCategoryModal(0, '', 0)"><i class="bi bi-plus-lg"></i> Нова категорія</button>
+            <button class="btn btn-sm btn-outline-info" @click="syncCategories()" :disabled="syncingCats">
+                <span x-show="!syncingCats"><i class="bi bi-arrow-repeat"></i> Синхр. OC</span>
+                <span x-show="syncingCats" x-cloak><span class="spinner-border spinner-border-sm"></span> Синхр...</span>
+            </button>
+            <button class="btn btn-sm btn-success" @click="openCategoryEdit(0, '', 0)"><i class="bi bi-plus-lg"></i> Нова категорія</button>
             <?php endif; ?>
         </div>
     </div>
@@ -301,7 +305,7 @@ if ($action === 'categories') {
                             <td><?php echo (int)$c['sort_order']; ?></td>
                             <td class="text-center"><?php echo $productCount; ?></td>
                             <td class="text-center">
-                                <button class="btn btn-sm btn-outline-primary" onclick="openCategoryModal(<?php echo (int)$c['category_id']; ?>, '<?php echo escape($c['name'], "'"); ?>', <?php echo (int)$c['sort_order']; ?>)"><i class="bi bi-pencil"></i></button>
+                                <button class="btn btn-sm btn-outline-primary" @click="openCategoryEdit(<?php echo (int)$c['category_id']; ?>, '<?php echo escape($c['name'], "'"); ?>', <?php echo (int)$c['sort_order']; ?>)"><i class="bi bi-pencil"></i></button>
                                 <form method="post" action="?action=delete_category" class="d-inline" onsubmit="return confirm('Видалити категорію «<?php echo escape($c['name']); ?>»?')">
                                     <input type="hidden" name="category_id" value="<?php echo (int)$c['category_id']; ?>">
                                     <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
@@ -321,23 +325,23 @@ if ($action === 'categories') {
         </div>
     </div>
 
-    <div class="modal fade" id="categoryModal" tabindex="-1">
+    <div class="modal fade" id="categoryModal" tabindex="-1" x-ref="categoryModal">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form method="post" action="?action=save_category">
                     <div class="modal-header">
-                        <h5 class="modal-title" id="categoryModalTitle">Нова категорія</h5>
+                        <h5 class="modal-title" x-text="editCategory.id ? 'Редагувати категорію' : 'Нова категорія'">Нова категорія</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <input type="hidden" name="category_id" id="catId">
+                        <input type="hidden" name="category_id" :value="editCategory.id">
                         <div class="mb-3">
                             <label class="form-label required">Назва</label>
-                            <input type="text" name="name" id="catName" class="form-control" required maxlength="128">
+                            <input type="text" name="name" x-model="editCategory.name" class="form-control" required maxlength="128">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Порядок сортування</label>
-                            <input type="number" name="sort_order" id="catSort" class="form-control" min="0" value="0">
+                            <input type="number" name="sort_order" x-model.number="editCategory.sort_order" class="form-control" min="0">
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -348,39 +352,7 @@ if ($action === 'categories') {
             </div>
         </div>
     </div>
-
-    <script>
-    function openCategoryModal(id, name, sort) {
-        document.getElementById('catId').value = id;
-        document.getElementById('catName').value = name;
-        document.getElementById('catSort').value = sort;
-        document.getElementById('categoryModalTitle').textContent = id ? 'Редагувати категорію' : 'Нова категорія';
-        new bootstrap.Modal(document.getElementById('categoryModal')).show();
-    }
-
-    function syncCategories() {
-        var btn = document.getElementById('syncCatsBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Синхр...';
-        fetch('<?php echo BASE_URL; ?>/api/sync-categories.php')
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                if (d.error) {
-                    alert('Помилка: ' + d.error);
-                } else {
-                    alert('OK! Синхронізовано ' + d.synced + ' категорій');
-                    location.reload();
-                }
-            })
-            .catch(function(e) {
-                alert('Помилка: ' + e.message);
-            })
-            .finally(function() {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Синхр. OC';
-            });
-    }
-    </script>
+    </div>
     <?php include __DIR__ . '/../includes/footer.php'; ?>
     <?php exit;
 }
@@ -440,13 +412,17 @@ if ($action === 'pricing') {
 
     include __DIR__ . '/../includes/header.php';
     ?>
+    <div x-data="stockPage">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="bi bi-currency-exchange"></i> Ціноутворення</h4>
         <div class="d-flex gap-2">
             <a href="<?php echo BASE_URL; ?>/modules/stock.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-boxes"></i> На склад</a>
             <?php if (isAdmin()): ?>
             <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#defaultsModal"><i class="bi bi-gear"></i> Налаштування</button>
-            <button class="btn btn-sm btn-success" id="pushPricesBtn" onclick="pushPrices()" title="Розрахувати ціни для всіх товарів і відправити на сайт"><i class="bi bi-send"></i> Застосувати курси → Сайт</button>
+            <button class="btn btn-sm btn-success" @click="pushPrices()" :disabled="pushingPrices" title="Розрахувати ціни для всіх товарів і відправити на сайт">
+                <span x-show="!pushingPrices"><i class="bi bi-send"></i> Застосувати курси → Сайт</span>
+                <span x-show="pushingPrices" x-cloak><span class="spinner-border spinner-border-sm"></span>...</span>
+            </button>
             <?php endif; ?>
         </div>
     </div>
@@ -516,7 +492,7 @@ if ($action === 'pricing') {
                     </colgroup>
                     <thead>
                         <tr>
-                            <th style="width:36px"><input type="checkbox" id="selectAllPricing" onchange="toggleAllPricing(this.checked)"></th>
+                            <th style="width:36px"><input type="checkbox" id="selectAllPricing" :checked="selectAllPricing" @change="toggleAllPricing($event.target.checked)"></th>
                             <th>Товар</th>
                             <th style="width:110px">Категорія</th>
                             <th style="width:70px" class="text-center">Залишок</th>
@@ -573,7 +549,8 @@ if ($action === 'pricing') {
                                     data-cpw="<?php echo (float)$p['custom_price_wholesale']; ?>"
                                     data-cps="<?php echo (float)$p['custom_price_semi_wholesale']; ?>"
                                     data-cpr="<?php echo (float)$p['custom_price_retail']; ?>"
-                                    title="Налаштувати ціни">
+                                    title="Налаштувати ціни"
+                                    @click="openPricingEdit($event.currentTarget)">
                                     <i class="bi bi-sliders"></i>
                                 </button>
                             </td>
@@ -594,46 +571,46 @@ if ($action === 'pricing') {
         <?php endif; ?>
     </div>
 
-    <div class="modal fade" id="pricingModal" tabindex="-1">
+    <div class="modal fade" id="pricingModal" tabindex="-1" x-ref="pricingModal">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form method="post" action="?action=save_rule">
                     <div class="modal-header">
-                        <h5 class="modal-title">Ціноутворення: <span id="modalProductName"></span></h5>
+                        <h5 class="modal-title">Ціноутворення: <span x-text="editPricing.name"></span></h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <input type="hidden" name="product_id" id="modalProductId">
+                        <input type="hidden" name="product_id" :value="editPricing.product_id">
                         <div class="mb-3">
                             <div class="form-check form-switch mb-2">
-                                <input class="form-check-input" type="checkbox" name="use_custom" id="useCustom" value="1">
+                                <input class="form-check-input" type="checkbox" name="use_custom" id="useCustom" value="1" x-model="editPricing.use_custom">
                                 <label class="form-check-label" for="useCustom">Використовувати власні ціни</label>
                             </div>
                         </div>
                         <div class="row g-3">
                             <div class="col-md-4">
                                 <label class="form-label">Націнка опт (%)</label>
-                                <input type="number" name="markup_wholesale" id="mw" class="form-control" step="0.01" min="0">
+                                <input type="number" name="markup_wholesale" x-model.number="editPricing.mw" class="form-control" step="0.01" min="0">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Націнка дріб. опт (%)</label>
-                                <input type="number" name="markup_semi_wholesale" id="ms" class="form-control" step="0.01" min="0">
+                                <input type="number" name="markup_semi_wholesale" x-model.number="editPricing.ms" class="form-control" step="0.01" min="0">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Націнка роздріб (%)</label>
-                                <input type="number" name="markup_retail" id="mr" class="form-control" step="0.01" min="0">
+                                <input type="number" name="markup_retail" x-model.number="editPricing.mr" class="form-control" step="0.01" min="0">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Власна ціна опт (UAH)</label>
-                                <input type="number" name="custom_price_wholesale" id="cpw" class="form-control" step="0.01" min="0">
+                                <input type="number" name="custom_price_wholesale" x-model.number="editPricing.cpw" class="form-control" step="0.01" min="0">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Власна ціна дріб. опт (UAH)</label>
-                                <input type="number" name="custom_price_semi_wholesale" id="cps" class="form-control" step="0.01" min="0">
+                                <input type="number" name="custom_price_semi_wholesale" x-model.number="editPricing.cps" class="form-control" step="0.01" min="0">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Власна ціна роздріб (UAH)</label>
-                                <input type="number" name="custom_price_retail" id="cpr" class="form-control" step="0.01" min="0">
+                                <input type="number" name="custom_price_retail" x-model.number="editPricing.cpr" class="form-control" step="0.01" min="0">
                             </div>
                         </div>
                     </div>
@@ -690,61 +667,7 @@ if ($action === 'pricing') {
     .table.table-product td.name-cell { overflow: hidden; text-overflow: ellipsis; }
     .table.table-product td.name-cell a { overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: inline-block; vertical-align: middle; }
     </style>
-    <script>
-    function toggleAllPricing(checked) {
-        document.querySelectorAll('.pricing-checkbox').forEach(function(cb) {
-            cb.checked = checked;
-        });
-    }
-    function pushPrices() {
-        var btn = document.getElementById('pushPricesBtn');
-        var checked = document.querySelectorAll('.pricing-checkbox:checked');
-        var url = '<?php echo BASE_URL; ?>/api/push-prices.php';
-        var options = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
-        if (checked.length > 0) {
-            var ids = Array.from(checked).map(function(cb) { return parseInt(cb.value); });
-            options.body = JSON.stringify({ product_ids: ids });
-            url += '?selected=1';
-        }
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>...';
-        fetch(url, options)
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-send"></i> Застосувати курси → Сайт';
-                if (d.error) {
-                    alert('Помилка: ' + d.error);
-                } else {
-                    var msg = '✅ Оновлено в ERP: ' + d.erp_updated + ' товарів';
-                    msg += '\n✅ Відправлено на сайт: ' + d.updated + ' товарів';
-                    if (d.errors && d.errors.length) msg += '\n⚠️ Помилки: ' + d.errors.slice(0, 3).join(', ');
-                    msg += '\n\nКурси: USD ' + d.rates_used.USD + ', EUR ' + d.rates_used.EUR;
-                    alert(msg);
-                }
-            })
-            .catch(function(e) {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-send"></i> Застосувати курси → Сайт';
-                alert('Помилка запиту: ' + e.message);
-            });
-    }
-
-    document.querySelectorAll('.edit-pricing').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            document.getElementById('modalProductId').value = this.dataset.productId;
-            document.getElementById('modalProductName').textContent = this.dataset.name;
-            document.getElementById('mw').value = this.dataset.mw;
-            document.getElementById('ms').value = this.dataset.ms;
-            document.getElementById('mr').value = this.dataset.mr;
-            document.getElementById('useCustom').checked = this.dataset.useCustom === '1';
-            document.getElementById('cpw').value = this.dataset.cpw;
-            document.getElementById('cps').value = this.dataset.cps;
-            document.getElementById('cpr').value = this.dataset.cpr;
-            new bootstrap.Modal(document.getElementById('pricingModal')).show();
-        });
-    });
-    </script>
+    </div>
     <?php include __DIR__ . '/../includes/footer.php'; ?>
     <?php exit;
 }
@@ -1042,13 +965,24 @@ if ($action === 'corrections') {
     $products = $pdo->query("SELECT product_id, name, model FROM erp_products ORDER BY name ASC")->fetchAll();
     $corrRates = getCurrentRates($pdo);
 
+    $allP = $pdo->query("SELECT product_id, name, model, sku FROM erp_products ORDER BY name ASC")->fetchAll();
+    $adjustProductsList = array_map(function($ap) {
+        return [
+            'id' => (int)$ap['product_id'],
+            'name' => $ap['name'] ?: 'ID ' . $ap['product_id'],
+            'model' => $ap['model'] ?? '',
+            'sku' => $ap['sku'] ?? ''
+        ];
+    }, $allP);
+
     include __DIR__ . '/../includes/header.php';
     ?>
+    <div x-data='stockPage(<?php echo htmlspecialchars(json_encode(["products" => $adjustProductsList]), ENT_QUOTES, 'UTF-8'); ?>)'>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="bi bi-sliders"></i> Корекції залишків</h4>
         <div>
             <a href="<?php echo BASE_URL; ?>/modules/stock.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i> На склад</a>
-            <button class="btn btn-sm btn-warning" data-bs-toggle="modal" data-bs-target="#adjustModal"><i class="bi bi-plus-lg"></i> Нова корекція</button>
+            <button class="btn btn-sm btn-warning" @click="openAdjust(0)"><i class="bi bi-plus-lg"></i> Нова корекція</button>
             <a href="<?php echo BASE_URL; ?>/modules/stock.php?action=import_initial" class="btn btn-sm btn-info"><i class="bi bi-upload"></i> Імпорт CSV</a>
         </div>
     </div>
@@ -1061,7 +995,7 @@ if ($action === 'corrections') {
                 <table class="table table-hover mb-0">
                     <thead>
                         <tr>
-                            <th style="width:40px;"><input type="checkbox" id="selectAll" onchange="document.querySelectorAll('.corr-check').forEach(c=>c.checked=this.checked)"></th>
+                            <th style="width:40px;"><input type="checkbox" id="selectAll" :checked="selectAllCorr" @change="toggleAllCorr($event.target.checked)"></th>
                             <th>#</th>
                             <th>Товар</th>
                             <th>Кількість</th>
@@ -1086,7 +1020,7 @@ if ($action === 'corrections') {
                             <td><?php echo escape($c['notes'] ?: '-'); ?></td>
                             <td><?php echo formatDate($c['date_added']); ?></td>
                             <td class="text-center">
-                                <button class="btn btn-sm btn-outline-primary" onclick="editCorrection(<?php echo htmlspecialchars(json_encode($c)); ?>)" title="Редагувати">
+                                <button class="btn btn-sm btn-outline-primary" @click="openCorrectionEdit(<?php echo htmlspecialchars(json_encode($c), ENT_QUOTES, 'UTF-8'); ?>)" title="Редагувати">
                                     <i class="bi bi-pencil"></i>
                                 </button>
                                 <a href="?action=delete_adjust&move_id=<?php echo (int)$c['move_id']; ?>" class="btn btn-sm btn-outline-danger" title="Видалити" onclick="return confirm('Видалити корекцію #<?php echo (int)$c['move_id']; ?>?')"><i class="bi bi-trash"></i></a>
@@ -1111,7 +1045,7 @@ if ($action === 'corrections') {
         <?php endif; ?>
     </div>
 
-    <div class="modal fade" id="editCorrectionModal" tabindex="-1">
+    <div class="modal fade" id="editCorrectionModal" tabindex="-1" x-ref="editCorrectionModal">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form method="post" action="?action=edit_adjust">
@@ -1120,22 +1054,22 @@ if ($action === 'corrections') {
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <input type="hidden" name="move_id" id="edit_move_id">
+                        <input type="hidden" name="move_id" :value="editCorrection.move_id">
                         <div class="mb-3">
                             <label class="form-label">ID товару</label>
-                            <input type="number" name="product_id" id="edit_product_id" class="form-control" readonly>
+                            <input type="number" name="product_id" :value="editCorrection.product_id" class="form-control" readonly>
                         </div>
                         <div class="mb-3">
                             <label class="form-label required">Кількість (+, -)</label>
-                            <input type="number" name="quantity" id="edit_quantity" class="form-control" step="0.01" required>
+                            <input type="number" name="quantity" x-model.number="editCorrection.quantity" class="form-control" step="0.01" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Собівартість (валюта)</label>
-                            <input type="number" name="cost_price" id="edit_cost_price" class="form-control" step="0.01" min="0" placeholder="0.00">
+                            <input type="number" name="cost_price" x-model.number="editCorrection.cost_price" class="form-control" step="0.01" min="0" placeholder="0.00">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Примітка</label>
-                            <textarea name="notes" id="edit_notes" class="form-control" rows="2"></textarea>
+                            <textarea name="notes" x-model="editCorrection.notes" class="form-control" rows="2"></textarea>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -1147,67 +1081,50 @@ if ($action === 'corrections') {
         </div>
     </div>
 
-<div class="modal fade" id="editProductModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="post" action="?action=edit_product">
-                <div class="modal-header">
-                    <h5 class="modal-title">Редагувати товар</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <input type="hidden" name="product_id" id="edit_product_id">
-                    <div class="mb-3">
-                        <label class="form-label required">Назва</label>
-                        <input type="text" name="name" id="edit_name" class="form-control" required>
+    <div class="modal fade" id="adjustModal" tabindex="-1" x-ref="adjustModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" action="?action=adjust">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Нова корекція залишків</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Модель</label>
-                        <input type="text" name="model" id="edit_model" class="form-control">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">SKU</label>
-                        <input type="text" name="sku" id="edit_sku" class="form-control">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Категорії</label>
-                        <div id="edit_categories" class="d-flex flex-wrap gap-2" style="max-height:160px;overflow-y:auto;">
-                            <?php $allCats = getCategories($pdo); foreach ($allCats as $cat): ?>
-                            <label class="form-check form-check-inline mb-1">
-                                <input type="checkbox" name="category_ids[]" value="<?php echo (int)$cat['category_id']; ?>" class="form-check-input">
-                                <span class="form-check-label small"><?php echo escape($cat['name']); ?></span>
-                            </label>
-                            <?php endforeach; ?>
+                    <div class="modal-body">
+                        <div class="mb-3 position-relative">
+                            <label class="form-label required">Товар</label>
+                            <input type="text" class="form-control" placeholder="Почніть вводити назву товару..." autocomplete="off" required
+                                   x-model="adjustQuery" @input="searchAdjust()" @focus="if(adjustQuery) searchAdjust()">
+                            <input type="hidden" name="product_id" :value="adjustSelectedId">
+                            <div class="dropdown-menu w-100" :class="adjustResults.length > 0 ? 'show' : ''" style="max-height:300px;overflow-y:auto;display:block;" x-show="adjustResults.length > 0" x-cloak>
+                                <template x-for="p in adjustResults" :key="p.id">
+                                    <button type="button" class="dropdown-item" @click="selectAdjust(p)" x-text="p.name + (p.model ? ' (' + p.model + ')' : '')"></button>
+                                </template>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label required">Кількість (+, -)</label>
+                            <input type="number" name="quantity" class="form-control" step="0.01" required placeholder="10 або -5">
+                            <div class="form-text">Додатнє число для оприбуткування, від'ємне для списання</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Собівартість (валюта)</label>
+                            <input type="number" name="cost_price" class="form-control" step="0.01" min="0" placeholder="0.00">
+                            <div class="form-text">Вкажіть собівартість у валюті постачальника (необов'язково)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Примітка</label>
+                            <textarea name="notes" class="form-control" rows="2"></textarea>
                         </div>
                     </div>
-                    <div class="row">
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">Опт</label>
-                            <input type="number" name="price_wholesale" id="edit_price_wholesale" class="form-control" step="0.01" min="0">
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">Дрібний опт</label>
-                            <input type="number" name="price_semi_wholesale" id="edit_price_semi" class="form-control" step="0.01" min="0">
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">Роздріб</label>
-                            <input type="number" name="price_retail" id="edit_price_retail" class="form-control" step="0.01" min="0">
-                        </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                        <button type="submit" class="btn btn-primary">Зберегти</button>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Закупівля</label>
-                        <input type="number" name="price_purchase" id="edit_price_purchase" class="form-control" step="0.01" min="0">
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
-                    <button type="submit" class="btn btn-primary">Зберегти</button>
-                </div>
-            </form>
+                </form>
+            </div>
         </div>
     </div>
-</div>
-
+    </div>
 <?php include __DIR__ . '/../includes/footer.php'; ?>
     <?php exit;
 }
@@ -1257,8 +1174,23 @@ if (count($products) > 0) {
     }
 }
 
+// Load all products for the adjust modal autocomplete
+$allP = $pdo->query("SELECT product_id, name, model, sku FROM erp_products ORDER BY name ASC")->fetchAll();
+$adjustProductsList = array_map(function($ap) {
+    return [
+        'id' => (int)$ap['product_id'],
+        'name' => $ap['name'] ?: 'ID ' . $ap['product_id'],
+        'model' => $ap['model'] ?? '',
+        'sku' => $ap['sku'] ?? ''
+    ];
+}, $allP);
+
+// Load categories for the edit product modal
+$allCategories = getCategories($pdo);
+
 include __DIR__ . '/../includes/header.php';
 ?>
+<div x-data='stockPage(<?php echo htmlspecialchars(json_encode(["products" => $adjustProductsList]), ENT_QUOTES, 'UTF-8'); ?>)'>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-boxes"></i> Склад</h4>
@@ -1273,17 +1205,23 @@ include __DIR__ . '/../includes/header.php';
         <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#createProductModal"><i class="bi bi-plus-lg"></i> Додати товар</button>
         <?php endif; ?>
         <?php if (isAdmin()): ?>
-        <button class="btn btn-sm btn-outline-info" id="syncBtn" onclick="syncProducts()"><i class="bi bi-arrow-repeat"></i> Синхр. OC</button>
-        <button class="btn btn-sm btn-outline-info" onclick="document.getElementById('syncOneWrap').classList.toggle('d-none')"><i class="bi bi-search"></i> OC по ID</button>
+        <button class="btn btn-sm btn-outline-info" @click="syncProducts()" :disabled="syncing">
+            <span x-show="!syncing"><i class="bi bi-arrow-repeat"></i> Синхр. OC</span>
+            <span x-show="syncing" x-cloak><span class="spinner-border spinner-border-sm"></span> Синхр...</span>
+        </button>
+        <button class="btn btn-sm btn-outline-info" @click="toggleSyncOneWrap()"><i class="bi bi-search"></i> OC по ID</button>
         <?php endif; ?>
     </div>
 </div>
 
-<div class="d-none mb-3" id="syncOneWrap">
+<div class="mb-3" x-show="syncOneOpen" x-cloak>
     <div class="input-group" style="max-width:400px;">
         <span class="input-group-text">API ID</span>
-        <input type="text" id="syncOneId" class="form-control" placeholder="Введіть ID товару" inputmode="numeric">
-        <button class="btn btn-outline-info" onclick="syncOneProduct()">Синхронізувати</button>
+        <input type="text" x-ref="syncOneId" class="form-control" placeholder="Введіть ID товару" inputmode="numeric">
+        <button class="btn btn-outline-info" @click="syncOneProduct()" :disabled="syncingOne">
+            <span x-show="!syncingOne">Синхронізувати</span>
+            <span x-show="syncingOne" x-cloak><span class="spinner-border spinner-border-sm"></span>...</span>
+        </button>
     </div>
 </div>
 
@@ -1348,10 +1286,10 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-end"><?php echo $p['price_retail'] ? formatMoney($p['price_retail']) : '-'; ?></td>
                         <td class="text-end"><?php echo $p['price_purchase'] ? formatMoney($p['price_purchase']) : '-'; ?></td>
                         <td class="text-center col-actions">
-                            <button class="btn btn-sm btn-outline-primary" onclick='editProduct(<?php echo json_encode(array_merge($p, ['category_ids' => $productCategoryIds[$p['product_id']] ?? []]), JSON_UNESCAPED_UNICODE); ?>)' title="Редагувати товар">
+                            <button class="btn btn-sm btn-outline-primary" @click='openProductEdit(<?php echo json_encode(array_merge($p, ['category_ids' => $productCategoryIds[$p['product_id']] ?? []]), JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT); ?>)' title="Редагувати товар">
                                 <i class="bi bi-pencil"></i>
                             </button>
-                            <button class="btn btn-sm btn-outline-success" onclick="openAdjust(<?php echo (int)$p['product_id']; ?>)" title="Корекція залишку">
+                            <button class="btn btn-sm btn-outline-success" @click="openAdjust(<?php echo (int)$p['product_id']; ?>)" title="Корекція залишку">
                                 <i class="bi bi-box-seam"></i>
                             </button>
                             <a href="<?php echo BASE_URL; ?>/modules/stock.php?action=moves&id=<?php echo (int)$p['product_id']; ?>" class="btn btn-sm btn-outline-info" title="Рух товару">
@@ -1378,7 +1316,7 @@ include __DIR__ . '/../includes/header.php';
     <?php endif; ?>
 </div>
 
-<div class="modal fade" id="adjustModal" tabindex="-1">
+<div class="modal fade" id="adjustModal" tabindex="-1" x-ref="adjustModal">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post" action="?action=adjust">
@@ -1389,9 +1327,14 @@ include __DIR__ . '/../includes/header.php';
                 <div class="modal-body">
                     <div class="mb-3 position-relative">
                         <label class="form-label required">Товар</label>
-                        <input type="text" id="adjustProductSearch" class="form-control" placeholder="Почніть вводити назву товару..." autocomplete="off" required>
-                        <input type="hidden" name="product_id" id="adjustProductId">
-                        <div id="adjustProductDropdown" class="dropdown-menu w-100" style="max-height:300px;overflow-y:auto;"></div>
+                        <input type="text" class="form-control" placeholder="Почніть вводити назву товару..." autocomplete="off" required
+                               x-model="adjustQuery" @input="searchAdjust()" @focus="if(adjustQuery) searchAdjust()">
+                        <input type="hidden" name="product_id" :value="adjustSelectedId">
+                        <div class="dropdown-menu w-100" :class="adjustResults.length > 0 ? 'show' : ''" style="max-height:300px;overflow-y:auto;display:block;" x-show="adjustResults.length > 0" x-cloak>
+                            <template x-for="p in adjustResults" :key="p.id">
+                                <button type="button" class="dropdown-item" @click="selectAdjust(p)" x-text="p.name + (p.model ? ' (' + p.model + ')' : '')"></button>
+                            </template>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label required">Кількість (+, -)</label>
@@ -1417,7 +1360,7 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<div class="modal fade" id="editProductModal" tabindex="-1">
+<div class="modal fade" id="editProductModal" tabindex="-1" x-ref="editProductModal">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post" action="?action=edit_product">
@@ -1426,25 +1369,27 @@ include __DIR__ . '/../includes/header.php';
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <input type="hidden" name="product_id" id="edit_product_id">
+                    <input type="hidden" name="product_id" :value="editProduct.product_id">
                     <div class="mb-3">
                         <label class="form-label required">Назва</label>
-                        <input type="text" name="name" id="edit_name" class="form-control" required>
+                        <input type="text" name="name" x-model="editProduct.name" class="form-control" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Модель</label>
-                        <input type="text" name="model" id="edit_model" class="form-control">
+                        <input type="text" name="model" x-model="editProduct.model" class="form-control">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">SKU</label>
-                        <input type="text" name="sku" id="edit_sku" class="form-control">
+                        <input type="text" name="sku" x-model="editProduct.sku" class="form-control">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Категорії</label>
-                        <div id="edit_categories" class="d-flex flex-wrap gap-2" style="max-height:160px;overflow-y:auto;">
-                            <?php $allCats = getCategories($pdo); foreach ($allCats as $cat): ?>
+                        <div class="d-flex flex-wrap gap-2" style="max-height:160px;overflow-y:auto;">
+                            <?php foreach ($allCategories as $cat): ?>
                             <label class="form-check form-check-inline mb-1">
-                                <input type="checkbox" name="category_ids[]" value="<?php echo (int)$cat['category_id']; ?>" class="form-check-input">
+                                <input type="checkbox" name="category_ids[]" value="<?php echo (int)$cat['category_id']; ?>" class="form-check-input"
+                                       :checked="editProduct.category_ids.includes(<?php echo (int)$cat['category_id']; ?>)"
+                                       @change="toggleCategory(<?php echo (int)$cat['category_id']; ?>)">
                                 <span class="form-check-label small"><?php echo escape($cat['name']); ?></span>
                             </label>
                             <?php endforeach; ?>
@@ -1453,20 +1398,20 @@ include __DIR__ . '/../includes/header.php';
                     <div class="row">
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Опт</label>
-                            <input type="number" name="price_wholesale" id="edit_price_wholesale" class="form-control" step="0.01" min="0">
+                            <input type="number" name="price_wholesale" x-model.number="editProduct.price_wholesale" class="form-control" step="0.01" min="0">
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Дрібний опт</label>
-                            <input type="number" name="price_semi_wholesale" id="edit_price_semi" class="form-control" step="0.01" min="0">
+                            <input type="number" name="price_semi_wholesale" x-model.number="editProduct.price_semi_wholesale" class="form-control" step="0.01" min="0">
                         </div>
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Роздріб</label>
-                            <input type="number" name="price_retail" id="edit_price_retail" class="form-control" step="0.01" min="0">
+                            <input type="number" name="price_retail" x-model.number="editProduct.price_retail" class="form-control" step="0.01" min="0">
                         </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Закупівля</label>
-                        <input type="number" name="price_purchase" id="edit_price_purchase" class="form-control" step="0.01" min="0">
+                        <input type="number" name="price_purchase" x-model.number="editProduct.price_purchase" class="form-control" step="0.01" min="0">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -1504,73 +1449,5 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
-
-<script>
-var adjustProducts = <?php
-$allP = $pdo->query("SELECT product_id, name, model, sku FROM erp_products ORDER BY name ASC")->fetchAll();
-echo json_encode(array_map(function($ap) {
-    return ['id' => (int)$ap['product_id'], 'name' => $ap['name'] ?: 'ID ' . $ap['product_id'], 'model' => $ap['model'] ?? '', 'sku' => $ap['sku'] ?? ''];
-}, $allP), JSON_UNESCAPED_UNICODE);
-?>;
-function openAdjust(productId) {
-    var p = adjustProducts.find(function(p) { return p.id === productId; });
-    if (!p) return;
-    var input = document.getElementById('adjustProductSearch');
-    var hidden = document.getElementById('adjustProductId');
-    if (input && hidden) {
-        hidden.value = p.id;
-        input.value = p.name + (p.model ? ' (' + p.model + ')' : '');
-        input._lastVal = input.value;
-        var modal = new bootstrap.Modal(document.getElementById('adjustModal'));
-        modal.show();
-    }
-}
-(function() {
-    var input = document.getElementById('adjustProductSearch');
-    var hidden = document.getElementById('adjustProductId');
-    var dropdown = document.getElementById('adjustProductDropdown');
-    if (!input || !hidden || !dropdown) return;
-
-    function filterProducts(q) {
-        if (!q) { dropdown.classList.remove('show'); return; }
-        var lower = q.toLowerCase();
-        var matches = adjustProducts.filter(function(p) {
-            return (p.name && p.name.toLowerCase().includes(lower)) ||
-                   (p.model && p.model.toLowerCase().includes(lower)) ||
-                   (p.sku && p.sku.toLowerCase().includes(lower));
-        }).slice(0, 20);
-        if (matches.length === 0) { dropdown.classList.remove('show'); return; }
-        dropdown.innerHTML = matches.map(function(p) {
-            var extra = p.model ? ' (' + p.model + ')' : '';
-            return '<button class="dropdown-item" type="button" data-id="' + p.id + '">' + escapeHtml(p.name) + extra + '</button>';
-        }).join('');
-        dropdown.classList.add('show');
-    }
-
-    input.addEventListener('input', function() {
-        if (this.value !== this._lastVal) {
-            hidden.value = '';
-            this._lastVal = this.value;
-        }
-        filterProducts(this.value);
-    });
-
-    input.addEventListener('blur', function() {
-        setTimeout(function() { dropdown.classList.remove('show'); }, 200);
-    });
-
-    input.addEventListener('focus', function() {
-        if (this.value) filterProducts(this.value);
-    });
-
-    dropdown.addEventListener('click', function(e) {
-        var btn = e.target.closest('.dropdown-item');
-        if (!btn) return;
-        hidden.value = btn.dataset.id;
-        input.value = btn.textContent;
-        input._lastVal = btn.textContent;
-        dropdown.classList.remove('show');
-    });
-})();
-</script>
+</div>
 <?php include __DIR__ . '/../includes/footer.php'; ?>

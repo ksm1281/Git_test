@@ -627,86 +627,147 @@ if ($action === 'create' || $action === 'edit') {
     <div class="card">
         <div class="card-body">
             <form method="post" action="?action=<?php echo $formAction; ?>" id="orderForm"
-                  x-data="itemsForm({ searchUrl: '<?php echo BASE_URL; ?>/api/search-products.php' })"
-                  data-items="<?php echo htmlspecialchars(json_encode($alpineItems), ENT_QUOTES, 'UTF-8'); ?>">
+                  x-data="orderForm"
+                  data-search-url="<?php echo htmlspecialchars(BASE_URL . '/api/search-products.php', ENT_QUOTES, 'UTF-8'); ?>"
+                  data-search-customers-url="<?php echo htmlspecialchars(BASE_URL . '/api/search-customers.php', ENT_QUOTES, 'UTF-8'); ?>"
+                  data-np-api-url="<?php echo htmlspecialchars(BASE_URL . '/api/nova-poshta.php', ENT_QUOTES, 'UTF-8'); ?>"
+                  data-delivery-method="<?php echo $isEdit ? htmlspecialchars($order['delivery_method'], ENT_QUOTES, 'UTF-8') : ''; ?>"
+                  data-customer-name="<?php echo $isEdit ? htmlspecialchars($order['customer_name'], ENT_QUOTES, 'UTF-8') : ''; ?>"
+                  data-np-city="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['delivery_city'], ENT_QUOTES, 'UTF-8') : ''; ?>"
+                  data-np-city-ref="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['delivery_city'], ENT_QUOTES, 'UTF-8') : ''; ?>"
+                  data-np-warehouse="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['delivery_office'], ENT_QUOTES, 'UTF-8') : ''; ?>"
+                  data-telephone="<?php echo $isEdit ? htmlspecialchars($order['telephone'], ENT_QUOTES, 'UTF-8') : ''; ?>"
+                  data-items="<?php echo htmlspecialchars(json_encode($alpineItems, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>">
                 <div class="row g-3 mb-3">
                     <div class="col-md-12">
                         <label class="form-label">Пошук клієнта <small class="text-muted">(введіть ім'я, телефон або email)</small></label>
                         <div class="position-relative">
-                            <input type="text" class="form-control" id="customerSearch" placeholder="Почніть вводити ім'я або телефон..." autocomplete="off">
-                            <div id="customerDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:1050;max-height:250px;overflow-y:auto;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
+                            <input type="text" class="form-control" placeholder="Почніть вводити ім'я або телефон..." autocomplete="off"
+                                   x-model="customerQuery"
+                                   @input.debounce.300ms="searchCustomer()"
+                                   @focus="searchCustomer()"
+                                   @keydown.escape="customerOpen = false"
+                                   @blur="closeCustomer()">
+                            <div x-show="customerOpen" x-cloak
+                                 style="position:absolute;top:100%;left:0;right:0;z-index:1050;max-height:250px;overflow-y:auto;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+                                <template x-for="c in customerResults" :key="c.customer_id || '_err'">
+                                    <button type="button" class="dropdown-item"
+                                            :class="{'text-danger': c._error}"
+                                            @mousedown.prevent="if(!c._error) selectCustomer(c)">
+                                        <span x-show="!c._error" x-text="((c.firstname||'')+' '+(c.lastname||'')).trim() || '#'+c.customer_id"></span>
+                                        <span x-show="c._error" x-text="c._error"></span>
+                                        <br x-show="!c._error">
+                                        <small x-show="!c._error" class="text-muted" x-text="[c.telephone, c.email].filter(Boolean).join(' · ')"></small>
+                                    </button>
+                                </template>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="row g-3 mb-3">
                     <div class="col-md-3">
                         <label class="form-label required">Ім'я</label>
-                        <input type="text" name="firstname" id="orderFirstname" class="form-control" required value="<?php echo $isEdit ? explode(' ', trim($order['customer_name']))[0] : ''; ?>">
+                        <input type="text" name="firstname" class="form-control" required value="<?php echo $isEdit ? explode(' ', trim($order['customer_name']))[0] : ''; ?>" x-ref="orderFirstname">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Фамілія</label>
-                        <input type="text" name="lastname" id="orderLastname" class="form-control" value="<?php echo $isEdit ? (strpos(trim($order['customer_name']), ' ') !== false ? substr(trim($order['customer_name']), strpos(trim($order['customer_name']), ' ') + 1) : '') : ''; ?>">
+                        <input type="text" name="lastname" class="form-control" value="<?php echo $isEdit ? (strpos(trim($order['customer_name']), ' ') !== false ? substr(trim($order['customer_name']), strpos(trim($order['customer_name']), ' ') + 1) : '') : ''; ?>" x-ref="orderLastname">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Телефон</label>
                         <div style="display:flex;gap:3px;">
-                            <input type="tel" name="telephone" id="orderTelephone" class="form-control" value="<?php echo $isEdit ? escape($order['telephone']) : ''; ?>" pattern="^\+?380[0-9]{9}$|^0[0-9]{9}$" title="Формат: +380XXXXXXXXX або 0XXXXXXXXX" style="flex:1;">
-                            <a href="#" target="_blank" id="telegramLink" title="Telegram" style="display:none;align-items:center;justify-content:center;width:34px;border:1px solid #dee2e6;border-radius:4px;text-decoration:none;background:#fff;"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0088cc"><path d="M2.5 3.2l18.5 7.8c.7.3.7 1.2 0 1.5L2.5 20.2c-.7.3-1.4-.3-1.2-1L3.7 13c.1-.3.3-.5.6-.6l8.8-2.4c.2-.1.2-.3 0-.4L4.3 7.1c-.3-.1-.5-.3-.6-.6L1.3 4.2c-.2-.7.5-1.3 1.2-1z"/></svg></a>
-                            <a href="#" target="_blank" id="viberLink" title="Viber" style="display:none;align-items:center;justify-content:center;width:34px;border:1px solid #dee2e6;border-radius:4px;text-decoration:none;background:#fff;"><svg width="18" height="18" viewBox="0 0 24 24" fill="#7360F2"><path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg></a>
+                            <input type="tel" name="telephone" class="form-control" pattern="^\+?380[0-9]{9}$|^0[0-9]{9}$" title="Формат: +380XXXXXXXXX або 0XXXXXXXXX" style="flex:1;"
+                                   x-model="telephone"
+                                   x-ref="orderTelephone">
+                            <a :href="messengerTelegram" target="_blank" title="Telegram"
+                               x-show="hasPhone" x-cloak
+                               style="display:inline-flex;align-items:center;justify-content:center;width:34px;border:1px solid #dee2e6;border-radius:4px;text-decoration:none;background:#fff;"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0088cc"><path d="M2.5 3.2l18.5 7.8c.7.3.7 1.2 0 1.5L2.5 20.2c-.7.3-1.4-.3-1.2-1L3.7 13c.1-.3.3-.5.6-.6l8.8-2.4c.2-.1.2-.3 0-.4L4.3 7.1c-.3-.1-.5-.3-.6-.6L1.3 4.2c-.2-.7.5-1.3 1.2-1z"/></svg></a>
+                            <a :href="messengerViber" target="_blank" title="Viber"
+                               x-show="hasPhone" x-cloak
+                               style="display:inline-flex;align-items:center;justify-content:center;width:34px;border:1px solid #dee2e6;border-radius:4px;text-decoration:none;background:#fff;"><svg width="18" height="18" viewBox="0 0 24 24" fill="#7360F2"><path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg></a>
                         </div>
                         <small class="text-muted">+380XXXXXXXXX або 0XXXXXXXXX</small>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Email</label>
-                        <input type="email" name="email" id="orderEmail" class="form-control" value="<?php echo $isEdit ? escape($order['email']) : ''; ?>">
+                        <input type="email" name="email" class="form-control" value="<?php echo $isEdit ? escape($order['email']) : ''; ?>" x-ref="orderEmail">
                     </div>
                 </div>
                 <div class="row g-3 mb-3">
                     <div class="col-md-3">
                         <label class="form-label">Спосіб доставки</label>
-                        <select name="delivery_method" class="form-select" id="deliveryMethod" onchange="toggleDeliveryFields()">
+                        <select name="delivery_method" class="form-select" x-model="deliveryMethod">
                             <option value="">-- Виберіть --</option>
-                            <option value="pickup" <?php echo $isEdit && $order['delivery_method'] === 'pickup' ? 'selected' : ''; ?>>Самовивіз</option>
-                            <option value="courier" <?php echo $isEdit && $order['delivery_method'] === 'courier' ? 'selected' : ''; ?>>Кур'єр</option>
-                            <option value="nova_poshta" <?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? 'selected' : ''; ?>>Нова Пошта</option>
-                            <option value="delivery" <?php echo $isEdit && $order['delivery_method'] === 'delivery' ? 'selected' : ''; ?>>Делівері</option>
-                            <option value="ukrposhta" <?php echo $isEdit && $order['delivery_method'] === 'ukrposhta' ? 'selected' : ''; ?>>Укрпошта</option>
+                            <option value="pickup">Самовивіз</option>
+                            <option value="courier">Кур'єр</option>
+                            <option value="nova_poshta">Нова Пошта</option>
+                            <option value="delivery">Делівері</option>
+                            <option value="ukrposhta">Укрпошта</option>
                         </select>
                     </div>
-                    <div class="col-md-3 delivery-field delivery-courier">
+                    <div class="col-md-3" x-show="deliveryMethod === 'courier'" x-cloak>
                         <label class="form-label">Вулиця</label>
                         <input type="text" name="delivery_street" class="form-control" value="<?php echo $isEdit ? escape($order['delivery_street']) : ''; ?>" placeholder="Назва вулиці">
                     </div>
-                    <div class="col-md-2 delivery-field delivery-courier">
+                    <div class="col-md-2" x-show="deliveryMethod === 'courier'" x-cloak>
                         <label class="form-label">Будинок</label>
                         <input type="text" name="delivery_building" class="form-control" value="<?php echo $isEdit ? escape($order['delivery_building']) : ''; ?>" placeholder="№">
                     </div>
-                    <div class="col-md-2 delivery-field delivery-courier">
+                    <div class="col-md-2" x-show="deliveryMethod === 'courier'" x-cloak>
                         <label class="form-label">Квартира/офіс</label>
                         <input type="text" name="delivery_apartment" class="form-control" value="<?php echo $isEdit ? escape($order['delivery_apartment']) : ''; ?>" placeholder="№">
                     </div>
-                    <div class="col-md-6 delivery-field delivery-np" style="display:none;">
+                    <div class="col-md-6" x-show="deliveryMethod === 'nova_poshta'" x-cloak>
                         <label class="form-label">Місто</label>
                         <div class="position-relative">
-                            <input type="text" class="form-control" id="npCitySearch" placeholder="Почніть вводити назву міста..." autocomplete="off" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_city']) : ''; ?>">
-                            <input type="hidden" name="np_city" id="npCityHidden" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_city']) : ''; ?>">
-                            <input type="hidden" id="npCityRef" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_city']) : ''; ?>">
-                            <div id="npCityDropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;"></div>
+                            <input type="text" class="form-control" placeholder="Почніть вводити назву міста..." autocomplete="off"
+                                   x-model="npCityQuery"
+                                   @input.debounce.300ms="searchNpCity()"
+                                   @focus="searchNpCity()"
+                                   @keydown.escape="npCityOpen = false"
+                                   @blur="closeNpCity()">
+                            <input type="hidden" name="np_city" x-model="npCityHidden">
+                            <div x-show="npCityOpen" x-cloak
+                                 style="position:absolute;top:100%;left:0;right:0;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;">
+                                <template x-for="c in npCityResults" :key="c.ref || '_err'">
+                                    <button type="button" class="dropdown-item"
+                                            :class="{'text-danger': c._error}"
+                                            @mousedown.prevent="if(!c._error) selectNpCity(c)">
+                                        <span x-show="!c._error" x-text="c.name"></span>
+                                        <span x-show="c._error" x-text="c._error"></span>
+                                    </button>
+                                </template>
+                            </div>
                         </div>
                     </div>
-                    <div class="col-md-3 delivery-field delivery-np" style="display:none;">
+                    <div class="col-md-3" x-show="deliveryMethod === 'nova_poshta'" x-cloak>
                         <label class="form-label">Відділення</label>
                         <div class="position-relative">
-                            <input type="text" class="form-control" id="npWarehouseSearch" placeholder="Почніть вводити номер відділення..." autocomplete="off" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_office']) : ''; ?>">
-                            <input type="hidden" name="np_warehouse" id="npWarehouseHidden" value="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? escape($order['delivery_office']) : ''; ?>">
-                            <div id="npWarehouseDropdown" style="display:none;position:fixed;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;"></div>
+                            <input type="text" class="form-control" placeholder="Почніть вводити номер відділення..." autocomplete="off"
+                                   x-model="npWarehouseQuery"
+                                   @input.debounce.300ms="searchNpWarehouse()"
+                                   @focus="if(npWarehouseQuery && !npWarehouseHidden) searchNpWarehouse()"
+                                   @keydown.escape="npWarehouseOpen = false"
+                                   @blur="closeNpWarehouse()">
+                            <input type="hidden" name="np_warehouse" x-model="npWarehouseHidden">
+                            <div x-show="npWarehouseOpen" x-cloak
+                                 style="position:absolute;top:100%;left:0;right:0;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;">
+                                <template x-for="w in npWarehouseResults" :key="w.name || '_err'">
+                                    <button type="button" class="dropdown-item"
+                                            :class="{'text-danger': w._error}"
+                                            @mousedown.prevent="if(!w._error) selectNpWarehouse(w)">
+                                        <span x-show="!w._error" x-text="w.name"></span>
+                                        <span x-show="w._error" x-text="w._error"></span>
+                                    </button>
+                                </template>
+                            </div>
                         </div>
                     </div>
-                    <div class="col-md-3 delivery-field delivery-other-post" style="display:none;">
+                    <div class="col-md-3" x-show="deliveryMethod === 'delivery' || deliveryMethod === 'ukrposhta'" x-cloak>
                         <label class="form-label">Місто</label>
                         <input type="text" name="delivery_city" class="form-control" value="<?php echo $isEdit && !in_array($order['delivery_method'], ['nova_poshta', 'courier', 'pickup', '']) ? escape($order['delivery_city']) : ''; ?>" placeholder="Місто">
                     </div>
-                    <div class="col-md-3 delivery-field delivery-other-post" style="display:none;">
+                    <div class="col-md-3" x-show="deliveryMethod === 'delivery' || deliveryMethod === 'ukrposhta'" x-cloak>
                         <label class="form-label">Відділення</label>
                         <input type="text" name="delivery_office" class="form-control" value="<?php echo $isEdit && !in_array($order['delivery_method'], ['nova_poshta', 'courier', 'pickup', '']) ? escape($order['delivery_office']) : ''; ?>" placeholder="№ відділення / адреса">
                     </div>
@@ -864,238 +925,6 @@ if ($action === 'create' || $action === 'edit') {
             </form>
         </div>
     </div>
-    <script>
-    function toggleDeliveryFields() {
-        const method = document.getElementById('deliveryMethod')?.value;
-        document.querySelectorAll('.delivery-field').forEach(el => el.style.display = 'none');
-        if (method === 'courier') {
-            document.querySelectorAll('.delivery-courier').forEach(el => el.style.display = 'block');
-        } else if (method === 'nova_poshta') {
-            document.querySelectorAll('.delivery-np').forEach(el => el.style.display = 'block');
-        } else if (method === 'delivery' || method === 'ukrposhta') {
-            document.querySelectorAll('.delivery-other-post').forEach(el => el.style.display = 'block');
-        }
-    }
-    toggleDeliveryFields();
-
-
-    // Customer autocomplete — AJAX
-    (function() {
-        var input = document.getElementById('customerSearch');
-        var dropdown = document.getElementById('customerDropdown');
-        if (!input || !dropdown) return;
-
-        function show() { dropdown.style.display = 'block'; }
-        function hide() { dropdown.style.display = 'none'; }
-
-        input.addEventListener('input', function() {
-            var q = this.value.trim();
-            if (q.length < 1) { hide(); return; }
-            fetch('<?php echo BASE_URL; ?>/api/search-customers.php?q=' + encodeURIComponent(q))
-                .then(function(r) {
-                    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
-                    return r.json();
-                })
-                .then(function(data) {
-                    if (!data || data.length === 0) { hide(); return; }
-                    if (data.error) { console.error('API error:', data.error); hide(); return; }
-                    dropdown.innerHTML = '';
-                    for (var i = 0; i < data.length; i++) {
-                        var c = data[i];
-                        var fullName = (c.firstname || '') + ' ' + (c.lastname || '');
-                        var info = [];
-                        if (c.telephone) info.push(c.telephone);
-                        if (c.email) info.push(c.email);
-                        var opt = document.createElement('button');
-                        opt.type = 'button';
-                        opt.className = 'dropdown-item';
-                        opt.dataset.customerId = c.customer_id;
-                        opt.dataset.firstname = c.firstname || '';
-                        opt.dataset.lastname = c.lastname || '';
-                        opt.dataset.telephone = c.telephone || '';
-                        opt.dataset.email = c.email || '';
-                        opt.innerHTML = (fullName.trim() || '#' + c.customer_id) + '<br><small class="text-muted">' + escapeHtml(info.join(' · ')) + '</small>';
-                        opt.addEventListener('mousedown', function(e) {
-                            e.preventDefault();
-                            document.getElementById('orderFirstname').value = this.dataset.firstname;
-                            document.getElementById('orderLastname').value = this.dataset.lastname;
-                            document.getElementById('orderTelephone').value = this.dataset.telephone;
-                            document.getElementById('orderEmail').value = this.dataset.email;
-                            input.value = ((this.dataset.firstname || '') + ' ' + (this.dataset.lastname || '')).trim();
-                            updateMessengerLinks();
-                            hide();
-                        });
-                        dropdown.appendChild(opt);
-                    }
-                    show();
-                })
-                .catch(function(err) {
-                    console.error('Customer search error:', err);
-                    dropdown.innerHTML = '<div class="dropdown-item text-danger">Помилка: ' + err.message + '</div>';
-                    show();
-                });
-        });
-        input.addEventListener('blur', function() {
-            setTimeout(hide, 200);
-        });
-    })();
-
-    // Nova Poshta city autocomplete
-    (function() {
-        var input = document.getElementById('npCitySearch');
-        var hidden = document.getElementById('npCityHidden');
-        var ref = document.getElementById('npCityRef');
-        var dropdown = document.getElementById('npCityDropdown');
-        if (!input || !hidden || !ref || !dropdown) return;
-
-        function hide() { dropdown.style.display = 'none'; }
-
-        function positionDropdown() {
-            var rect = input.getBoundingClientRect();
-            dropdown.style.top = rect.bottom + 'px';
-            dropdown.style.left = rect.left + 'px';
-            dropdown.style.width = rect.width + 'px';
-            dropdown.style.maxHeight = Math.min(200, window.innerHeight - rect.bottom - 20) + 'px';
-        }
-
-        input.addEventListener('input', function() {
-            var q = this.value.trim();
-            if (q.length < 1) { hide(); return; }
-            fetch('<?php echo BASE_URL; ?>/api/nova-poshta.php?action=cities&q=' + encodeURIComponent(q))
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    if (data.error) { dropdown.innerHTML = '<div class="dropdown-item text-danger small">' + escapeHtml(data.error) + '</div>'; positionDropdown(); dropdown.style.display = 'block'; return; }
-                    if (!data || data.length === 0) { hide(); return; }
-                    dropdown.innerHTML = '';
-                    for (var i = 0; i < data.length; i++) {
-                        var btn = document.createElement('button');
-                        btn.type = 'button';
-                        btn.className = 'dropdown-item';
-                        btn.dataset.ref = data[i].ref;
-                        btn.dataset.name = data[i].name;
-                        btn.textContent = data[i].name;
-                        btn.addEventListener('mousedown', function(e) {
-                            e.preventDefault();
-                            input.value = this.dataset.name;
-                            hidden.value = this.dataset.name;
-                            ref.value = this.dataset.ref;
-                            hide();
-                            document.getElementById('npWarehouseSearch').focus();
-                        });
-                        dropdown.appendChild(btn);
-                    }
-                    positionDropdown();
-                    dropdown.style.display = 'block';
-                })
-                .catch(function(err) { console.error('NP search error:', err); hide(); });
-        });
-
-        input.addEventListener('blur', function() {
-            setTimeout(hide, 200);
-        });
-    })();
-
-    function searchWarehouses(callback) {
-        var ref = document.getElementById('npCityRef');
-        var q = document.getElementById('npWarehouseSearch').value.trim();
-        if (!ref || !ref.value) { callback([]); return; }
-        fetch('<?php echo BASE_URL; ?>/api/nova-poshta.php?action=warehouses&city_ref=' + encodeURIComponent(ref.value) + '&q=' + encodeURIComponent(q))
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.error) { callback(null, data.error); return; }
-                callback(data || []);
-            })
-            .catch(function(err) { console.error('NP warehouses error:', err); callback([]); });
-    }
-
-    (function() {
-        var input = document.getElementById('npWarehouseSearch');
-        var hidden = document.getElementById('npWarehouseHidden');
-        var dropdown = document.getElementById('npWarehouseDropdown');
-        if (!input || !hidden || !dropdown) return;
-
-        function positionDropdown() {
-            var rect = input.getBoundingClientRect();
-            dropdown.style.top = rect.bottom + 'px';
-            dropdown.style.left = rect.left + 'px';
-            dropdown.style.width = rect.width + 'px';
-            dropdown.style.maxHeight = Math.min(200, window.innerHeight - rect.bottom - 20) + 'px';
-        }
-
-        function hide() { dropdown.style.display = 'none'; }
-
-        var debounceTimer;
-        input.addEventListener('input', function() {
-            if (this.value !== this._lastVal) {
-                hidden.value = '';
-                this._lastVal = this.value;
-            }
-            clearTimeout(debounceTimer);
-            if (!this.value) { hide(); return; }
-            debounceTimer = setTimeout(function() {
-                searchWarehouses(function(data, error) {
-                    if (error) { dropdown.innerHTML = '<div class="dropdown-item text-danger small">' + escapeHtml(error) + '</div>'; positionDropdown(); dropdown.style.display = 'block'; return; }
-                    if (!data || data.length === 0) { hide(); return; }
-                    dropdown.innerHTML = '';
-                    for (var i = 0; i < data.length; i++) {
-                        var btn = document.createElement('button');
-                        btn.type = 'button';
-                        btn.className = 'dropdown-item';
-                        btn.dataset.value = data[i].name;
-                        btn.textContent = data[i].name;
-                        btn.addEventListener('mousedown', function(e) {
-                            e.preventDefault();
-                            input.value = this.textContent;
-                            input._lastVal = this.textContent;
-                            hidden.value = this.textContent;
-                            hide();
-                        });
-                        dropdown.appendChild(btn);
-                    }
-                    positionDropdown();
-                    dropdown.style.display = 'block';
-                });
-            }, 300);
-        });
-
-        input.addEventListener('blur', function() {
-            setTimeout(hide, 200);
-        });
-
-        input.addEventListener('focus', function() {
-            if (this.value && !hidden.value) searchWarehouses(function(data) {
-                if (data.length) { /* reshows dropdown */ }
-            });
-        });
-    })();
-
-    function normalizePhone(phone) {
-        var digits = phone.replace(/\D/g, '');
-        if (digits.length === 10 && digits.startsWith('0')) return '38' + digits;
-        if (digits.length === 9) return '380' + digits;
-        if (digits.startsWith('380')) return digits;
-        return digits;
-    }
-
-    function updateMessengerLinks() {
-        var phone = document.getElementById('orderTelephone').value.trim();
-        var tgLink = document.getElementById('telegramLink');
-        var vbLink = document.getElementById('viberLink');
-        if (!phone) {
-            tgLink.style.display = 'none';
-            vbLink.style.display = 'none';
-            return;
-        }
-        var normalized = normalizePhone(phone);
-        tgLink.href = 'tg://resolve?phone=' + normalized;
-        vbLink.href = 'viber://chat?number=' + normalized;
-        tgLink.style.display = 'flex';
-        vbLink.style.display = 'flex';
-    }
-
-    document.getElementById('orderTelephone').addEventListener('input', updateMessengerLinks);
-    updateMessengerLinks();
-    </script>
     <?php
     include __DIR__ . '/../includes/footer.php';
     exit;
