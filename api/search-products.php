@@ -28,15 +28,7 @@ try {
     $stmt->execute([$s, $s, $s]);
     $rows = $stmt->fetchAll();
     foreach ($rows as &$row) {
-        $cost = getProductCostPrice($pdo, (int)$row['product_id']);
-        $row['cost_price'] = $cost;
-        if ($cost > 0) {
-            $markups = getDefaultMarkups($pdo);
-            $minRetail = calculatePrice($cost, $markups['default_markup_retail']);
-            $row['min_price'] = $minRetail;
-        } else {
-            $row['min_price'] = 0;
-        }
+        $row['cost_price'] = getProductCostPrice($pdo, (int)$row['product_id']);
     }
     unset($row);
     echo json_encode($rows, JSON_UNESCAPED_UNICODE);
