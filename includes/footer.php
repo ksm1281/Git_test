@@ -327,6 +327,12 @@
                 if (digits.length === 9) return '380' + digits;
                 if (digits.startsWith('380')) return digits;
                 return digits;
+            },
+
+            submitOrder() {
+                const belowCost = this.items.some(item => item.costPrice > 0 && item.price < item.costPrice);
+                if (belowCost && !confirm('Деякі товари продаються нижче собівартості. Продовжити?')) return;
+                this.$el.querySelector('form').submit();
             }
         }));
 

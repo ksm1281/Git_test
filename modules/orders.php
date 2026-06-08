@@ -127,9 +127,6 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $total += $lineTotal;
 
             $costPrice = getProductCostPrice($pdo, $pid, $qty);
-            if ($costPrice > 0 && $price < $costPrice) {
-                $_SESSION['warning_below_cost'] = true;
-            }
             $profit = $lineTotal - ($costPrice * $qty);
 
             $stmt = $pdo->prepare("INSERT INTO erp_order_products (order_id, product_id, name, quantity, price, total, cost_price, profit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
@@ -199,10 +196,6 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        if (!empty($_SESSION['warning_below_cost'])) {
-            unset($_SESSION['warning_below_cost']);
-            flashMessage('warning', 'Деякі товари продано нижче собівартості');
-        }
         flashMessage('success', 'Замовлення #' . $orderId . ' збережено');
         redirect(BASE_URL . '/modules/orders.php?action=view&id=' . $orderId);
     } catch (Exception $e) {
@@ -639,7 +632,7 @@ if ($action === 'create' || $action === 'edit') {
     </div>
     <div class="card">
         <div class="card-body">
-            <form method="post" action="?action=<?php echo $formAction; ?>" id="orderForm"
+            <form method="post" action="?action=<?php echo $formAction; ?>" id="orderForm" @submit.prevent="submitOrder"
                   x-data="orderForm"
                   data-search-url="<?php echo htmlspecialchars(BASE_URL . '/api/search-products.php', ENT_QUOTES, 'UTF-8'); ?>"
                   data-search-customers-url="<?php echo htmlspecialchars(BASE_URL . '/api/search-customers.php', ENT_QUOTES, 'UTF-8'); ?>"
