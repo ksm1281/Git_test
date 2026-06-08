@@ -59,9 +59,10 @@ $users = $stmt->fetchAll();
 include __DIR__ . '/../includes/header.php';
 ?>
 
+<div x-data="settingsEdit" data-defaults='{"id":0,"username":"","password":"","email":"","role":"staff","status":true}'>
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-person-gear"></i> Персонал</h4>
-    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#userModal"><i class="bi bi-plus-lg"></i> Додати</button>
+    <button class="btn btn-primary btn-sm" @click="openNew()"><i class="bi bi-plus-lg"></i> Додати</button>
 </div>
 
 <div class="card">
@@ -98,7 +99,8 @@ include __DIR__ . '/../includes/header.php';
                         <td><?php echo $u['status'] ? '<span class="badge bg-success">Активний</span>' : '<span class="badge bg-danger">Заблоковано</span>'; ?></td>
                         <td><?php echo formatDate($u['date_added']); ?></td>
                         <td class="text-center">
-                            <button class="btn btn-sm btn-outline-primary edit-user"
+                            <button class="btn btn-sm btn-outline-primary"
+                                @click="openEdit($event.currentTarget)"
                                 data-id="<?php echo $u['user_id']; ?>"
                                 data-username="<?php echo escape($u['username']); ?>"
                                 data-email="<?php echo escape($u['email']); ?>"
@@ -123,32 +125,32 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<div class="modal fade" id="userModal" tabindex="-1">
+<div class="modal fade" tabindex="-1" x-ref="modal">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="post" action="?action=save" id="userForm">
-                <input type="hidden" name="user_id" id="editUserId" value="0">
+            <form method="post" action="?action=save">
+                <input type="hidden" name="user_id" :value="edit.id">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="userModalTitle">Новий користувач</h5>
+                    <h5 class="modal-title" x-text="edit.id ? 'Редагувати користувача' : 'Новий користувач'">Новий користувач</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label required">Ім'я користувача</label>
-                        <input type="text" name="username" id="editUsername" class="form-control" required>
+                        <input type="text" name="username" x-model="edit.username" class="form-control" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label" id="passwordLabel">Пароль</label>
-                        <input type="password" name="password" id="editPassword" class="form-control" autocomplete="new-password">
-                        <div class="form-text" id="passwordHelp">Залиште порожнім, щоб не змінювати</div>
+                        <label class="form-label" x-text="edit.id ? 'Новий пароль' : 'Пароль'">Пароль</label>
+                        <input type="password" name="password" x-model="edit.password" class="form-control" autocomplete="new-password">
+                        <div class="form-text" x-show="edit.id" x-cloak>Залиште порожнім, щоб не змінювати</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Email</label>
-                        <input type="email" name="email" id="editEmail" class="form-control">
+                        <input type="email" name="email" x-model="edit.email" class="form-control">
                     </div>
                     <div class="mb-3">
                         <label class="form-label required">Роль</label>
-                        <select name="role" id="editRole" class="form-select">
+                        <select name="role" x-model="edit.role" class="form-select">
                             <option value="staff">Співробітник</option>
                             <option value="manager">Менеджер</option>
                             <option value="admin">Адміністратор</option>
@@ -156,8 +158,8 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="mb-3">
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="status" id="editStatus" value="1" checked>
-                            <label class="form-check-label" for="editStatus">Активний</label>
+                            <input class="form-check-input" type="checkbox" name="status" value="1" x-model="edit.status">
+                            <label class="form-check-label">Активний</label>
                         </div>
                     </div>
                 </div>
@@ -169,32 +171,6 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
-
-<script>
-document.querySelectorAll('.edit-user').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        document.getElementById('editUserId').value = this.dataset.id;
-        document.getElementById('editUsername').value = this.dataset.username;
-        document.getElementById('editEmail').value = this.dataset.email;
-        document.getElementById('editRole').value = this.dataset.role;
-        document.getElementById('editStatus').checked = this.dataset.status === '1';
-        document.getElementById('userModalTitle').textContent = 'Редагувати користувача';
-        document.getElementById('passwordLabel').textContent = 'Новий пароль';
-        document.getElementById('passwordHelp').style.display = 'block';
-        document.getElementById('editPassword').required = false;
-        new bootstrap.Modal(document.getElementById('userModal')).show();
-    });
-});
-
-document.querySelector('[data-bs-target="#userModal"]')?.addEventListener('click', function() {
-    document.getElementById('userForm').reset();
-    document.getElementById('editUserId').value = '0';
-    document.getElementById('editStatus').checked = true;
-    document.getElementById('userModalTitle').textContent = 'Новий користувач';
-    document.getElementById('passwordLabel').textContent = 'Пароль';
-    document.getElementById('passwordHelp').style.display = 'none';
-    document.getElementById('editPassword').required = true;
-});
-</script>
+</div>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

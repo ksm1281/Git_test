@@ -490,10 +490,11 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <?php elseif ($tab === 'cash'): ?>
+<div x-data="settingsEdit" data-defaults='{"id":0,"name":"","type":"cash","currency":"UAH","balance":0,"status":true}'>
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Рахунки / Каси</span>
-        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#cashModal"><i class="bi bi-plus-lg"></i> Додати рахунок</button>
+        <button class="btn btn-primary btn-sm" @click="openNew()"><i class="bi bi-plus-lg"></i> Додати рахунок</button>
     </div>
     <div class="card-body p-0">
         <?php if (count($accounts) > 0): ?>
@@ -520,7 +521,8 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-end"><?php echo formatMoney($a['initial_balance']); ?></td>
                         <td><?php echo $a['status'] ? '<span class="badge bg-success">Активний</span>' : '<span class="badge bg-danger">Неактивний</span>'; ?></td>
                         <td class="text-center">
-                            <button class="btn btn-sm btn-outline-primary edit-cash"
+                            <button class="btn btn-sm btn-outline-primary"
+                                @click="openEdit($event.currentTarget)"
                                 data-id="<?php echo $a['account_id']; ?>"
                                 data-name="<?php echo escape($a['name']); ?>"
                                 data-type="<?php echo $a['type']; ?>"
@@ -544,24 +546,24 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<div class="modal fade" id="cashModal" tabindex="-1">
+<div class="modal fade" tabindex="-1" x-ref="modal">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post">
-                <input type="hidden" name="account_id" id="editAccountId" value="0">
+                <input type="hidden" name="account_id" :value="edit.id">
                 <input type="hidden" name="save_account" value="1">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="cashModalTitle">Новий рахунок</h5>
+                    <h5 class="modal-title" x-text="edit.id ? 'Редагувати рахунок' : 'Новий рахунок'">Новий рахунок</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label required">Назва</label>
-                        <input type="text" name="name" id="editCashName" class="form-control" required>
+                        <input type="text" name="name" x-model="edit.name" class="form-control" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label required">Тип</label>
-                        <select name="type" id="editCashType" class="form-select">
+                        <select name="type" x-model="edit.type" class="form-select">
                             <option value="cash">Готівка</option>
                             <option value="bank">Банк</option>
                             <option value="fop">ФОП</option>
@@ -569,7 +571,7 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="mb-3">
                         <label class="form-label required">Валюта</label>
-                        <select name="currency" id="editCashCurrency" class="form-select">
+                        <select name="currency" x-model="edit.currency" class="form-select">
                             <option value="UAH">UAH</option>
                             <option value="USD">USD</option>
                             <option value="EUR">EUR</option>
@@ -577,11 +579,11 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Початковий баланс</label>
-                        <input type="number" name="initial_balance" id="editCashBalance" class="form-control" step="0.01" value="0">
+                        <input type="number" name="initial_balance" x-model.number="edit.balance" class="form-control" step="0.01">
                     </div>
                     <div class="mb-3">
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="status" id="editCashStatus" value="1" checked>
+                            <input class="form-check-input" type="checkbox" name="status" value="1" x-model="edit.status">
                             <label class="form-check-label">Активний</label>
                         </div>
                     </div>
@@ -594,12 +596,14 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
+</div>
 
 <?php elseif ($tab === 'delivery'): ?>
+<div x-data="settingsEdit" data-defaults='{"id":0,"code":"","name":"","sort":0,"status":true}'>
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Способи доставки</span>
-        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#deliveryModal"><i class="bi bi-plus-lg"></i> Додати</button>
+        <button class="btn btn-primary btn-sm" @click="openNew()"><i class="bi bi-plus-lg"></i> Додати</button>
     </div>
     <div class="card-body p-0">
         <?php if (count($deliveryMethods) > 0): ?>
@@ -622,7 +626,8 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-center"><?php echo (int)$m['sort_order']; ?></td>
                         <td><?php echo $m['status'] ? '<span class="badge bg-success">Активно</span>' : '<span class="badge bg-danger">Вимкнено</span>'; ?></td>
                         <td class="text-center">
-                            <button class="btn btn-sm btn-outline-primary edit-delivery"
+                            <button class="btn btn-sm btn-outline-primary"
+                                @click="openEdit($event.currentTarget)"
                                 data-id="<?php echo $m['method_id']; ?>"
                                 data-code="<?php echo escape($m['code']); ?>"
                                 data-name="<?php echo escape($m['name']); ?>"
@@ -645,32 +650,32 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<div class="modal fade" id="deliveryModal" tabindex="-1">
+<div class="modal fade" tabindex="-1" x-ref="modal">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post">
-                <input type="hidden" name="method_id" id="editDeliveryId" value="0">
+                <input type="hidden" name="method_id" :value="edit.id">
                 <input type="hidden" name="save_delivery" value="1">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="deliveryModalTitle">Новий спосіб доставки</h5>
+                    <h5 class="modal-title" x-text="edit.id ? 'Редагувати спосіб доставки' : 'Новий спосіб доставки'">Новий спосіб доставки</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label required">Код</label>
-                        <input type="text" name="code" id="editDeliveryCode" class="form-control" required pattern="[a-z_]+" title="Тільки латинські літери та знак підкреслення">
+                        <input type="text" name="code" x-model="edit.code" class="form-control" required pattern="[a-z_]+" title="Тільки латинські літери та знак підкреслення">
                     </div>
                     <div class="mb-3">
                         <label class="form-label required">Назва</label>
-                        <input type="text" name="name" id="editDeliveryName" class="form-control" required>
+                        <input type="text" name="name" x-model="edit.name" class="form-control" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Порядок сортування</label>
-                        <input type="number" name="sort_order" id="editDeliverySort" class="form-control" value="0">
+                        <input type="number" name="sort_order" x-model.number="edit.sort" class="form-control">
                     </div>
                     <div class="mb-3">
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="status" id="editDeliveryStatus" value="1" checked>
+                            <input class="form-check-input" type="checkbox" name="status" value="1" x-model="edit.status">
                             <label class="form-check-label">Активно</label>
                         </div>
                     </div>
@@ -683,12 +688,14 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
+</div>
 
 <?php elseif ($tab === 'payment'): ?>
+<div x-data="settingsEdit" data-defaults='{"id":0,"code":"","name":"","sort":0,"status":true}'>
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Способи оплати</span>
-        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#paymentModal"><i class="bi bi-plus-lg"></i> Додати</button>
+        <button class="btn btn-primary btn-sm" @click="openNew()"><i class="bi bi-plus-lg"></i> Додати</button>
     </div>
     <div class="card-body p-0">
         <?php if (count($paymentMethods) > 0): ?>
@@ -711,7 +718,8 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-center"><?php echo (int)$m['sort_order']; ?></td>
                         <td><?php echo $m['status'] ? '<span class="badge bg-success">Активно</span>' : '<span class="badge bg-danger">Вимкнено</span>'; ?></td>
                         <td class="text-center">
-                            <button class="btn btn-sm btn-outline-primary edit-payment"
+                            <button class="btn btn-sm btn-outline-primary"
+                                @click="openEdit($event.currentTarget)"
                                 data-id="<?php echo $m['method_id']; ?>"
                                 data-code="<?php echo escape($m['code']); ?>"
                                 data-name="<?php echo escape($m['name']); ?>"
@@ -734,32 +742,32 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<div class="modal fade" id="paymentModal" tabindex="-1">
+<div class="modal fade" tabindex="-1" x-ref="modal">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post">
-                <input type="hidden" name="method_id" id="editPaymentId" value="0">
+                <input type="hidden" name="method_id" :value="edit.id">
                 <input type="hidden" name="save_payment" value="1">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="paymentModalTitle">Новий спосіб оплати</h5>
+                    <h5 class="modal-title" x-text="edit.id ? 'Редагувати спосіб оплати' : 'Новий спосіб оплати'">Новий спосіб оплати</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label required">Код</label>
-                        <input type="text" name="code" id="editPaymentCode" class="form-control" required pattern="[a-z_]+" title="Тільки латинські літери та знак підкреслення">
+                        <input type="text" name="code" x-model="edit.code" class="form-control" required pattern="[a-z_]+" title="Тільки латинські літери та знак підкреслення">
                     </div>
                     <div class="mb-3">
                         <label class="form-label required">Назва</label>
-                        <input type="text" name="name" id="editPaymentName" class="form-control" required>
+                        <input type="text" name="name" x-model="edit.name" class="form-control" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Порядок сортування</label>
-                        <input type="number" name="sort_order" id="editPaymentSort" class="form-control" value="0">
+                        <input type="number" name="sort_order" x-model.number="edit.sort" class="form-control">
                     </div>
                     <div class="mb-3">
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="status" id="editPaymentStatus" value="1" checked>
+                            <input class="form-check-input" type="checkbox" name="status" value="1" x-model="edit.status">
                             <label class="form-check-label">Активно</label>
                         </div>
                     </div>
@@ -772,12 +780,14 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
+</div>
 
 <?php elseif ($tab === 'users'): ?>
+<div x-data="settingsEdit" data-defaults='{"id":0,"username":"","password":"","email":"","role":"staff","status":true}'>
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Користувачі</span>
-        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#userModal"><i class="bi bi-plus-lg"></i> Додати</button>
+        <button class="btn btn-primary btn-sm" @click="openNew()"><i class="bi bi-plus-lg"></i> Додати</button>
     </div>
     <div class="card-body p-0">
         <?php if (count($users) > 0): ?>
@@ -812,7 +822,8 @@ include __DIR__ . '/../includes/header.php';
                         <td><?php echo $u['status'] ? '<span class="badge bg-success">Активний</span>' : '<span class="badge bg-danger">Заблоковано</span>'; ?></td>
                         <td><?php echo formatDate($u['date_added']); ?></td>
                         <td class="text-center">
-                            <button class="btn btn-sm btn-outline-primary edit-user"
+                            <button class="btn btn-sm btn-outline-primary"
+                                @click="openEdit($event.currentTarget)"
                                 data-id="<?php echo $u['user_id']; ?>"
                                 data-username="<?php echo escape($u['username']); ?>"
                                 data-email="<?php echo escape($u['email']); ?>"
@@ -837,33 +848,33 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<div class="modal fade" id="userModal" tabindex="-1">
+<div class="modal fade" tabindex="-1" x-ref="modal">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post">
-                <input type="hidden" name="user_id" id="editUserId" value="0">
+                <input type="hidden" name="user_id" :value="edit.id">
                 <input type="hidden" name="save_user" value="1">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="userModalTitle">Новий користувач</h5>
+                    <h5 class="modal-title" x-text="edit.id ? 'Редагувати користувача' : 'Новий користувач'">Новий користувач</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label required">Ім'я користувача</label>
-                        <input type="text" name="username" id="editUsername" class="form-control" required>
+                        <input type="text" name="username" x-model="edit.username" class="form-control" required>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label" id="passwordLabel">Пароль</label>
-                        <input type="password" name="password" id="editPassword" class="form-control" autocomplete="new-password">
-                        <div class="form-text" id="passwordHelp">Залиште порожнім, щоб не змінювати</div>
+                        <label class="form-label" x-text="edit.id ? 'Новий пароль' : 'Пароль'">Пароль</label>
+                        <input type="password" name="password" x-model="edit.password" class="form-control" autocomplete="new-password">
+                        <div class="form-text" x-show="edit.id" x-cloak>Залиште порожнім, щоб не змінювати</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Email</label>
-                        <input type="email" name="email" id="editEmail" class="form-control">
+                        <input type="email" name="email" x-model="edit.email" class="form-control">
                     </div>
                     <div class="mb-3">
                         <label class="form-label required">Роль</label>
-                        <select name="role" id="editRole" class="form-select">
+                        <select name="role" x-model="edit.role" class="form-select">
                             <option value="staff">Співробітник</option>
                             <option value="manager">Менеджер</option>
                             <option value="admin">Адміністратор</option>
@@ -871,7 +882,7 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="mb-3">
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="status" id="editUserStatus" value="1" checked>
+                            <input class="form-check-input" type="checkbox" name="status" value="1" x-model="edit.status">
                             <label class="form-check-label">Активний</label>
                         </div>
                     </div>
@@ -884,96 +895,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
+</div>
 <?php endif; ?>
-
-<script>
-document.querySelectorAll('.edit-cash').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        document.getElementById('editAccountId').value = this.dataset.id;
-        document.getElementById('editCashName').value = this.dataset.name;
-        document.getElementById('editCashType').value = this.dataset.type;
-        document.getElementById('editCashCurrency').value = this.dataset.currency;
-        document.getElementById('editCashBalance').value = this.dataset.balance;
-        document.getElementById('editCashStatus').checked = this.dataset.status === '1';
-        document.getElementById('cashModalTitle').textContent = 'Редагувати рахунок';
-        new bootstrap.Modal(document.getElementById('cashModal')).show();
-    });
-});
-document.querySelector('[data-bs-target="#cashModal"]')?.addEventListener('click', function() {
-    document.getElementById('editAccountId').value = '0';
-    document.getElementById('editCashName').value = '';
-    document.getElementById('editCashType').value = 'cash';
-    document.getElementById('editCashCurrency').value = 'UAH';
-    document.getElementById('editCashBalance').value = '0';
-    document.getElementById('editCashStatus').checked = true;
-    document.getElementById('cashModalTitle').textContent = 'Новий рахунок';
-});
-
-document.querySelectorAll('.edit-delivery').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        document.getElementById('editDeliveryId').value = this.dataset.id;
-        document.getElementById('editDeliveryCode').value = this.dataset.code;
-        document.getElementById('editDeliveryName').value = this.dataset.name;
-        document.getElementById('editDeliverySort').value = this.dataset.sort;
-        document.getElementById('editDeliveryStatus').checked = this.dataset.status === '1';
-        document.getElementById('deliveryModalTitle').textContent = 'Редагувати спосіб доставки';
-        new bootstrap.Modal(document.getElementById('deliveryModal')).show();
-    });
-});
-document.querySelector('[data-bs-target="#deliveryModal"]')?.addEventListener('click', function() {
-    document.getElementById('editDeliveryId').value = '0';
-    document.getElementById('editDeliveryCode').value = '';
-    document.getElementById('editDeliveryName').value = '';
-    document.getElementById('editDeliverySort').value = '0';
-    document.getElementById('editDeliveryStatus').checked = true;
-    document.getElementById('deliveryModalTitle').textContent = 'Новий спосіб доставки';
-});
-
-document.querySelectorAll('.edit-payment').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        document.getElementById('editPaymentId').value = this.dataset.id;
-        document.getElementById('editPaymentCode').value = this.dataset.code;
-        document.getElementById('editPaymentName').value = this.dataset.name;
-        document.getElementById('editPaymentSort').value = this.dataset.sort;
-        document.getElementById('editPaymentStatus').checked = this.dataset.status === '1';
-        document.getElementById('paymentModalTitle').textContent = 'Редагувати спосіб оплати';
-        new bootstrap.Modal(document.getElementById('paymentModal')).show();
-    });
-});
-document.querySelector('[data-bs-target="#paymentModal"]')?.addEventListener('click', function() {
-    document.getElementById('editPaymentId').value = '0';
-    document.getElementById('editPaymentCode').value = '';
-    document.getElementById('editPaymentName').value = '';
-    document.getElementById('editPaymentSort').value = '0';
-    document.getElementById('editPaymentStatus').checked = true;
-    document.getElementById('paymentModalTitle').textContent = 'Новий спосіб оплати';
-});
-
-document.querySelectorAll('.edit-user').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        document.getElementById('editUserId').value = this.dataset.id;
-        document.getElementById('editUsername').value = this.dataset.username;
-        document.getElementById('editEmail').value = this.dataset.email;
-        document.getElementById('editRole').value = this.dataset.role;
-        document.getElementById('editUserStatus').checked = this.dataset.status === '1';
-        document.getElementById('userModalTitle').textContent = 'Редагувати користувача';
-        document.getElementById('passwordLabel').textContent = 'Новий пароль';
-        document.getElementById('passwordHelp').style.display = 'block';
-        document.getElementById('editPassword').required = false;
-        new bootstrap.Modal(document.getElementById('userModal')).show();
-    });
-});
-document.querySelector('[data-bs-target="#userModal"]')?.addEventListener('click', function() {
-    document.getElementById('editUserId').value = '0';
-    document.getElementById('editUsername').value = '';
-    document.getElementById('editEmail').value = '';
-    document.getElementById('editRole').value = 'staff';
-    document.getElementById('editUserStatus').checked = true;
-    document.getElementById('userModalTitle').textContent = 'Новий користувач';
-    document.getElementById('passwordLabel').textContent = 'Пароль';
-    document.getElementById('passwordHelp').style.display = 'none';
-    document.getElementById('editPassword').required = true;
-});
-</script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

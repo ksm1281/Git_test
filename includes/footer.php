@@ -569,6 +569,32 @@
             }
         }));
 
+        Alpine.data('settingsEdit', () => ({
+            edit: {},
+
+            init() {
+                this.edit = this.$el.dataset.defaults ? JSON.parse(this.$el.dataset.defaults) : {};
+            },
+
+            openEdit(btn) {
+                const d = btn.dataset;
+                this.edit = {};
+                for (const key in d) {
+                    let val = d[key];
+                    if (key === 'id' || key === 'sort' || key === 'sortOrder') val = parseInt(val) || 0;
+                    else if (key === 'balance') val = parseFloat(val) || 0;
+                    else if (key === 'status') val = val !== '0' && val !== 'false';
+                    this.edit[key] = val;
+                }
+                new bootstrap.Modal(this.$refs.modal).show();
+            },
+
+            openNew() {
+                this.edit = this.$el.dataset.defaults ? JSON.parse(this.$el.dataset.defaults) : {};
+                new bootstrap.Modal(this.$refs.modal).show();
+            }
+        }));
+
         Alpine.data('paymentManager', () => ({
             filterType: '',
             addType: 'supplier',
