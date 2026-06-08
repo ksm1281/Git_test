@@ -550,11 +550,12 @@ include __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
-<?php elseif ($tab === 'payments'): ?>
+ <?php elseif ($tab === 'payments'): ?>
 
+<div x-data="paymentManager" data-filter-type="<?php echo $pType; ?>">
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-cash-stack"></i> Оплати</h4>
-    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addPaymentModal"><i class="bi bi-plus-lg"></i> Нова оплата</button>
+    <button class="btn btn-primary btn-sm" @click="new bootstrap.Modal($refs.addModal).show()"><i class="bi bi-plus-lg"></i> Нова оплата</button>
 </div>
 
 <div class="card mb-3">
@@ -562,13 +563,13 @@ include __DIR__ . '/../includes/header.php';
         <form method="get" class="row g-2 align-items-end">
             <input type="hidden" name="tab" value="payments">
             <div class="col-auto">
-                <select name="p_type" class="form-select form-select-sm">
+                <select name="p_type" class="form-select form-select-sm" x-model="filterType" @change="submitFilter()">
                     <option value="">Усі оплати</option>
-                    <option value="supplier" <?php echo $pType === 'supplier' ? 'selected' : ''; ?>>Постачальникам</option>
-                    <option value="customer" <?php echo $pType === 'customer' ? 'selected' : ''; ?>>Від клієнтів</option>
+                    <option value="supplier">Постачальникам</option>
+                    <option value="customer">Від клієнтів</option>
                 </select>
             </div>
-            <div class="col-auto" id="supplierFilterWrap"<?php echo $pType === 'customer' ? ' style="display:none"' : ''; ?>>
+            <div class="col-auto" x-show="filterType !== 'customer'" x-cloak>
                 <select name="supplier" class="form-select form-select-sm">
                     <option value="">Усі постачальники</option>
                     <?php foreach ($allSuppliers as $s): ?>
@@ -587,11 +588,6 @@ include __DIR__ . '/../includes/header.php';
             </div>
         </form>
     </div>
-    <script>
-    document.querySelector('[name="p_type"]')?.addEventListener('change', function() {
-        document.getElementById('supplierFilterWrap').style.display = this.value === 'customer' ? 'none' : '';
-    });
-    </script>
 </div>
 
 <div class="card">
@@ -632,11 +628,13 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-end fw-bold <?php echo $isSupplier ? 'text-danger' : 'text-success'; ?>"><?php echo $isSupplier ? '-' : '+'; ?><?php echo formatMoney($pmt['amount']); ?></td>
                         <td><?php echo escape($pmt['notes'] ?: '-'); ?></td>
                         <td class="text-center">
-                            <button class="btn btn-sm btn-outline-primary edit-payment"
+                            <button class="btn btn-sm btn-outline-primary"
+                                @click="openEdit($event.currentTarget)"
                                 data-id="<?php echo $pmt['payment_id']; ?>"
                                 data-type="<?php echo $isSupplier ? 'supplier' : 'customer'; ?>"
                                 data-invoice="<?php echo (int)$pmt['invoice_id']; ?>"
                                 data-order="<?php echo (int)$pmt['order_id']; ?>"
+                                data-supplier="<?php echo (int)$pmt['supplier_id']; ?>"
                                 data-amount="<?php echo $pmt['amount']; ?>"
                                 data-method="<?php echo $pmt['method']; ?>"
                                 data-date="<?php echo $pmt['date']; ?>"
@@ -662,7 +660,7 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <!-- Add Payment Modal -->
-<div class="modal fade" id="addPaymentModal" tabindex="-1">
+<div class="modal fade" tabindex="-1" x-ref="addModal">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post" action="?tab=payments&action=create_payment">
@@ -673,15 +671,15 @@ include __DIR__ . '/../includes/header.php';
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label">Тип</label>
-                        <select name="p_type" class="form-select" id="addPmtType">
+                        <select name="p_type" class="form-select" x-model="addType">
                             <option value="supplier">Постачальнику</option>
                             <option value="customer">Від клієнта</option>
                         </select>
                     </div>
-                    <div id="addPmtSupplierFields">
+                    <div x-show="addType === 'supplier'" x-cloak>
                         <div class="mb-3">
                             <label class="form-label">Постачальник</label>
-                            <select name="supplier_id" id="pmtSupplier" class="form-select">
+                            <select name="supplier_id" class="form-select" x-model="addSupplierId" @change="filterInvoices($event.target)">
                                 <option value="">— Без накладної —</option>
                                 <?php foreach ($allSuppliers as $s): ?>
                                 <option value="<?php echo $s['supplier_id']; ?>"><?php echo escape($s['name']); ?></option>
@@ -690,7 +688,7 @@ include __DIR__ . '/../includes/header.php';
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Накладна (необов'язково)</label>
-                            <select name="invoice_id" id="pmtInvoice" class="form-select">
+                            <select name="invoice_id" class="form-select" data-invoice-select>
                                 <option value="">— Без накладної —</option>
                                 <?php foreach ($allInvoicesWithDebt as $inv): ?>
                                 <option value="<?php echo $inv['invoice_id']; ?>" data-supplier="<?php echo $inv['supplier_id']; ?>">#<?php echo escape($inv['invoice_number']); ?> — <?php echo escape($inv['supplier_name']); ?> (борг: <?php echo formatMoney($inv['debt_remaining']); ?>)</option>
@@ -698,7 +696,7 @@ include __DIR__ . '/../includes/header.php';
                             </select>
                         </div>
                     </div>
-                    <div id="addPmtCustomerFields" style="display:none">
+                    <div x-show="addType === 'customer'" x-cloak>
                         <div class="mb-3">
                             <label class="form-label">Замовлення (необов'язково)</label>
                             <select name="order_id" class="form-select">
@@ -742,7 +740,7 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <!-- Edit Payment Modal -->
-<div class="modal fade" id="editPaymentModal" tabindex="-1">
+<div class="modal fade" tabindex="-1" x-ref="editModal">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post" action="?tab=payments&action=update_payment">
@@ -751,12 +749,12 @@ include __DIR__ . '/../includes/header.php';
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <input type="hidden" name="payment_id" id="editPaymentId" value="0">
-                    <input type="hidden" name="p_type" id="editPmtType" value="supplier">
-                    <div id="editPmtSupplierFields">
+                    <input type="hidden" name="payment_id" :value="editPayment.id">
+                    <input type="hidden" name="p_type" :value="editPayment.type">
+                    <div x-show="editPayment.type === 'supplier'" x-cloak>
                         <div class="mb-3">
                             <label class="form-label">Постачальник</label>
-                            <select name="supplier_id" id="editPmtSupplier" class="form-select">
+                            <select name="supplier_id" class="form-select" x-model="editPayment.supplierId" @change="filterInvoices($event.target)">
                                 <option value="">— Без накладної —</option>
                                 <?php foreach ($allSuppliers as $s): ?>
                                 <option value="<?php echo $s['supplier_id']; ?>"><?php echo escape($s['name']); ?></option>
@@ -765,7 +763,7 @@ include __DIR__ . '/../includes/header.php';
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Накладна (необов'язково)</label>
-                            <select name="invoice_id" id="editPmtInvoice" class="form-select">
+                            <select name="invoice_id" class="form-select" data-invoice-select x-model="editPayment.invoiceId">
                                 <option value="">— Без накладної —</option>
                                 <?php foreach ($allInvoicesWithDebt as $inv): ?>
                                 <option value="<?php echo $inv['invoice_id']; ?>" data-supplier="<?php echo $inv['supplier_id']; ?>">#<?php echo escape($inv['invoice_number']); ?> — <?php echo escape($inv['supplier_name']); ?> (борг: <?php echo formatMoney($inv['debt_remaining']); ?>)</option>
@@ -773,10 +771,10 @@ include __DIR__ . '/../includes/header.php';
                             </select>
                         </div>
                     </div>
-                    <div id="editPmtCustomerFields" style="display:none">
+                    <div x-show="editPayment.type === 'customer'" x-cloak>
                         <div class="mb-3">
                             <label class="form-label">Замовлення (необов'язково)</label>
-                            <select name="order_id" id="editPmtOrder" class="form-select">
+                            <select name="order_id" class="form-select" x-model="editPayment.orderId">
                                 <option value="">— Без замовлення —</option>
                                 <?php foreach ($ordersWithDebt as $ord): ?>
                                 <option value="<?php echo $ord['order_id']; ?>">#<?php echo (int)$ord['order_id']; ?> — <?php echo escape($ord['customer_name'] ?: '-'); ?> (борг: <?php echo formatMoney($ord['debt_remaining']); ?>)</option>
@@ -786,11 +784,11 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Сума (UAH) *</label>
-                        <input type="number" name="amount" id="editPaymentAmount" class="form-control" step="0.01" min="0.01" required>
+                        <input type="number" name="amount" x-model="editPayment.amount" class="form-control" step="0.01" min="0.01" required>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Метод</label>
-                        <select name="method" id="editPaymentMethod" class="form-select">
+                        <select name="method" x-model="editPayment.method" class="form-select">
                             <option value="cash">Готівка</option>
                             <option value="card">Картка</option>
                             <option value="fop">ФОП</option>
@@ -800,11 +798,11 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Дата</label>
-                        <input type="date" name="date" id="editPaymentDate" class="form-control">
+                        <input type="date" name="date" x-model="editPayment.date" class="form-control">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Примітка</label>
-                        <input type="text" name="notes" id="editPaymentNotes" class="form-control">
+                        <input type="text" name="notes" x-model="editPayment.notes" class="form-control">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -815,92 +813,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
-
-<script>
-// Toggle add modal fields by type
-document.getElementById('addPmtType')?.addEventListener('change', function() {
-    var isSupplier = this.value === 'supplier';
-    document.getElementById('addPmtSupplierFields').style.display = isSupplier ? '' : 'none';
-    document.getElementById('addPmtCustomerFields').style.display = isSupplier ? 'none' : '';
-});
-
-// Filter invoices by supplier in add modal
-document.getElementById('pmtSupplier')?.addEventListener('change', function() {
-    var val = this.value;
-    var sel = document.getElementById('pmtInvoice');
-    for (var i = 0; i < sel.options.length; i++) {
-        if (i === 0) continue;
-        sel.options[i].style.display = sel.options[i].dataset.supplier === val || !val ? '' : 'none';
-    }
-    if (sel.selectedIndex > 0 && sel.options[sel.selectedIndex].style.display === 'none') {
-        sel.value = '';
-    }
-});
-
-// Fill edit modal from data attributes
-document.querySelectorAll('.edit-payment').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        var type = this.dataset.type || 'supplier';
-        var isSupplier = type === 'supplier';
-
-        document.getElementById('editPaymentId').value = this.dataset.id;
-        document.getElementById('editPmtType').value = type;
-        document.getElementById('editPaymentAmount').value = this.dataset.amount;
-        document.getElementById('editPaymentMethod').value = this.dataset.method;
-        document.getElementById('editPaymentDate').value = this.dataset.date;
-        document.getElementById('editPaymentNotes').value = this.dataset.notes;
-
-        document.getElementById('editPmtSupplierFields').style.display = isSupplier ? '' : 'none';
-        document.getElementById('editPmtCustomerFields').style.display = isSupplier ? 'none' : '';
-
-        if (isSupplier) {
-            var invId = parseInt(this.dataset.invoice) || 0;
-            var editSel = document.getElementById('editPmtInvoice');
-            for (var i = 0; i < editSel.options.length; i++) {
-                if (parseInt(editSel.options[i].value) === invId) {
-                    editSel.value = invId;
-                    break;
-                }
-            }
-            var editSup = document.getElementById('editPmtSupplier');
-            if (invId) {
-                var selectedOpt = editSel.options[editSel.selectedIndex];
-                var supId = selectedOpt ? selectedOpt.dataset.supplier : '';
-                for (var j = 0; j < editSup.options.length; j++) {
-                    if (editSup.options[j].value === supId) {
-                        editSup.value = supId;
-                        break;
-                    }
-                }
-            }
-        } else {
-            var ordId = parseInt(this.dataset.order) || 0;
-            var ordSel = document.getElementById('editPmtOrder');
-            for (var i = 0; i < ordSel.options.length; i++) {
-                if (parseInt(ordSel.options[i].value) === ordId) {
-                    ordSel.value = ordId;
-                    break;
-                }
-            }
-        }
-
-        new bootstrap.Modal(document.getElementById('editPaymentModal')).show();
-    });
-});
-
-// Filter invoices in edit modal by supplier
-document.getElementById('editPmtSupplier')?.addEventListener('change', function() {
-    var val = this.value;
-    var sel = document.getElementById('editPmtInvoice');
-    for (var i = 0; i < sel.options.length; i++) {
-        if (i === 0) continue;
-        sel.options[i].style.display = sel.options[i].dataset.supplier === val || !val ? '' : 'none';
-    }
-    if (sel.selectedIndex > 0 && sel.options[sel.selectedIndex].style.display === 'none') {
-        sel.value = '';
-    }
-});
-</script>
+</div>
 
 <?php endif; ?>
 

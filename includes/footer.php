@@ -568,6 +568,58 @@
                 this.$el.querySelector('form').submit();
             }
         }));
+
+        Alpine.data('paymentManager', () => ({
+            filterType: '',
+            addType: 'supplier',
+            addSupplierId: '',
+            editPayment: { id: 0, type: 'supplier', supplierId: '', invoiceId: '', orderId: '', amount: '', method: 'cash', date: '', notes: '' },
+
+            init() {
+                this.filterType = this.$el.dataset.filterType || '';
+            },
+
+            submitFilter() {
+                this.$nextTick(() => this.$el.querySelector('form').submit());
+            },
+
+            filterInvoices(selectEl) {
+                const val = selectEl.value;
+                const invoiceSel = selectEl.closest('.modal-body').querySelector('[data-invoice-select]');
+                if (!invoiceSel) return;
+                for (let i = 1; i < invoiceSel.options.length; i++) {
+                    invoiceSel.options[i].style.display = invoiceSel.options[i].dataset.supplier === val || !val ? '' : 'none';
+                }
+                if (invoiceSel.selectedIndex > 0 && invoiceSel.options[invoiceSel.selectedIndex].style.display === 'none') {
+                    invoiceSel.value = '';
+                }
+            },
+
+            openEdit(btn) {
+                const d = btn.dataset;
+                const isSupplier = d.type !== 'customer';
+                this.editPayment = {
+                    id: parseInt(d.id) || 0,
+                    type: d.type || 'supplier',
+                    supplierId: d.supplier || '',
+                    invoiceId: d.invoice || '',
+                    orderId: d.order || '',
+                    amount: d.amount || '',
+                    method: d.method || 'cash',
+                    date: d.date || '',
+                    notes: d.notes || '',
+                };
+                this.$nextTick(() => {
+                    const sel = this.$refs.editModal.querySelector('[data-invoice-select]');
+                    if (sel) this.filterInvoices(sel);
+                    if (isSupplier && this.editPayment.invoiceId) {
+                        const invSelect = this.$refs.editModal.querySelector('[data-invoice-select]');
+                        if (invSelect) invSelect.value = this.editPayment.invoiceId;
+                    }
+                });
+                new bootstrap.Modal(this.$refs.editModal).show();
+            }
+        }));
     });
     </script>
     </div>
