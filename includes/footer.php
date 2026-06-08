@@ -188,11 +188,18 @@
                 const item = this.items[idx];
                 item.product_id = parseInt(product.product_id);
                 item.name = product.name;
-                item.prices = {
+                item.costPrice = parseFloat(product.cost_price) || 0;
+                const prices = {
                     retail: parseFloat(product.price_retail) || 0,
                     semi: parseFloat(product.price_semi_wholesale) || 0,
                     wholesale: parseFloat(product.price_wholesale) || 0,
                 };
+                item.prices = prices;
+                const minPrice = parseFloat(product.min_price) || 0;
+                if (prices.retail >= minPrice) item.price = prices.retail;
+                else if (prices.semi >= minPrice) item.price = prices.semi;
+                else if (prices.wholesale >= minPrice) item.price = prices.wholesale;
+                else item.price = minPrice;
                 this.searchResults = [];
                 this.searchOpenIdx = -1;
             },

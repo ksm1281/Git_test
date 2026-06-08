@@ -827,10 +827,11 @@ if ($action === 'create' || $action === 'edit') {
                     <table class="table table-bordered">
                         <thead>
                             <tr>
-                                <th style="width:40%;">Товар</th>
-                                <th style="width:15%;">Кількість</th>
-                                <th style="width:20%;">Ціна (<?php echo CURRENCY_CODE; ?>)</th>
-                                <th style="width:20%;">Сума</th>
+                                <th style="width:35%;">Товар</th>
+                                <th style="width:12%;">Кількість</th>
+                                <th style="width:16%;">Ціна (<?php echo CURRENCY_CODE; ?>)</th>
+                                <th style="width:14%;">Сума</th>
+                                <th style="width:12%;">Собівартість</th>
                                 <th style="width:5%;"></th>
                             </tr>
                         </thead>
@@ -871,8 +872,16 @@ if ($action === 'create' || $action === 'edit') {
                                     </div>
                                 </td>
                                 <td><input type="number" name="quantity[]" class="form-control" x-model="item.qty" step="1" min="1" inputmode="numeric"></td>
-                                <td><input type="number" name="price[]" class="form-control price-input" x-model="item.price" step="0.01" min="0"></td>
+                                <td>
+                                    <input type="number" name="price[]" class="form-control price-input" x-model="item.price" step="0.01" min="0"
+                                           :class="{'is-invalid': item.costPrice > 0 && item.price < item.costPrice}"
+                                           @blur="if(item.costPrice > 0 && item.price < item.costPrice) { $el.classList.add('is-invalid'); } else { $el.classList.remove('is-invalid'); }">
+                                </td>
                                 <td><span class="fw-bold" x-text="(item.qty * item.price).toFixed(2)"></span></td>
+                                <td>
+                                    <span x-show="item.costPrice > 0" x-text="parseFloat(item.costPrice).toFixed(2)" :class="{'text-danger': item.price < item.costPrice}"></span>
+                                    <span x-show="!item.costPrice" class="text-muted">—</span>
+                                </td>
                                 <td><button type="button" class="btn btn-outline-danger btn-sm" @click="removeItem(idx)"><i class="bi bi-trash"></i></button></td>
                             </tr>
                             </template>
