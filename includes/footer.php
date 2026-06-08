@@ -503,6 +503,71 @@
                 new bootstrap.Modal(this.$refs.modal).show();
             }
         }));
+
+        Alpine.data('analyticsPage', () => ({
+            period: '',
+            year: '',
+
+            init() {
+                this.period = this.$el.dataset.period || 'month';
+                this.year = this.$el.dataset.year || '';
+
+                const el = document.getElementById('chartData');
+                if (!el) return;
+                const data = JSON.parse(el.textContent);
+                if (!data) return;
+
+                new Chart(document.getElementById('analyticsChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: data.labels,
+                        datasets: [{
+                            label: 'Замовлення',
+                            data: data.ordersData,
+                            backgroundColor: 'rgba(13, 110, 253, 0.5)',
+                            borderColor: 'rgba(13, 110, 253, 1)',
+                            borderWidth: 1,
+                            yAxisID: 'y'
+                        }, {
+                            label: 'Дохід (UAH)',
+                            data: data.revenueData,
+                            backgroundColor: 'rgba(25, 135, 84, 0.3)',
+                            borderColor: 'rgba(25, 135, 84, 1)',
+                            borderWidth: 2,
+                            type: 'line',
+                            yAxisID: 'y1'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { position: 'top' } },
+                        scales: {
+                            y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Замовлення' } },
+                            y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'Дохід (UAH)' }, grid: { drawOnChartArea: false } }
+                        }
+                    }
+                });
+
+                new Chart(document.getElementById('statusPieChart'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: data.statusLabels,
+                        datasets: [{
+                            data: data.statusData,
+                            backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6c757d', '#0dcaf0']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+            },
+
+            submitForm() {
+                this.$el.querySelector('form').submit();
+            }
+        }));
     });
     </script>
     </div>

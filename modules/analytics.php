@@ -73,23 +73,29 @@ $totalProfit = (float)$profitData['total_profit'];
 
 include __DIR__ . '/../includes/header.php';
 ?>
+<script id="chartData" type="application/json"><?php echo json_encode([
+    'labels' => $labels,
+    'ordersData' => $ordersData,
+    'revenueData' => $revenueData,
+    'statusLabels' => array_column($orderStatuses, 'status_name'),
+    'statusData' => array_column($orderStatuses, 'count'),
+]); ?></script>
 
+<div x-data="analyticsPage" data-period="<?php echo $period; ?>" data-year="<?php echo $year; ?>">
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-graph-up"></i> Аналітика</h4>
     <form method="get" class="d-flex gap-2">
-        <select name="period" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
-            <option value="today" <?php echo $period === 'today' ? 'selected' : ''; ?>>Сьогодні</option>
-            <option value="week" <?php echo $period === 'week' ? 'selected' : ''; ?>>Цей тиждень</option>
-            <option value="month" <?php echo $period === 'month' ? 'selected' : ''; ?>>Цей місяць</option>
-            <option value="year" <?php echo $period === 'year' ? 'selected' : ''; ?>>Рік</option>
+        <select name="period" class="form-select form-select-sm" style="width:auto;" x-model="period" @change="submitForm()">
+            <option value="today">Сьогодні</option>
+            <option value="week">Цей тиждень</option>
+            <option value="month">Цей місяць</option>
+            <option value="year">Рік</option>
         </select>
-        <?php if ($period === 'year'): ?>
-        <select name="year" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+        <select name="year" class="form-select form-select-sm" style="width:auto;" x-show="period === 'year'" x-cloak x-model="year" @change="submitForm()">
             <?php for ($y = date('Y'); $y >= 2020; $y--): ?>
-            <option value="<?php echo $y; ?>" <?php echo $year === $y ? 'selected' : ''; ?>><?php echo $y; ?></option>
+            <option value="<?php echo $y; ?>"><?php echo $y; ?></option>
             <?php endfor; ?>
         </select>
-        <?php endif; ?>
     </form>
 </div>
 
@@ -198,56 +204,7 @@ include __DIR__ . '/../includes/header.php';
         </div>
     </div>
 </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    new Chart(document.getElementById('analyticsChart'), {
-        type: 'bar',
-        data: {
-            labels: <?php echo json_encode($labels); ?>,
-            datasets: [{
-                label: 'Замовлення',
-                data: <?php echo json_encode($ordersData); ?>,
-                backgroundColor: 'rgba(13, 110, 253, 0.5)',
-                borderColor: 'rgba(13, 110, 253, 1)',
-                borderWidth: 1,
-                yAxisID: 'y'
-            }, {
-                label: 'Дохід (UAH)',
-                data: <?php echo json_encode($revenueData); ?>,
-                backgroundColor: 'rgba(25, 135, 84, 0.3)',
-                borderColor: 'rgba(25, 135, 84, 1)',
-                borderWidth: 2,
-                type: 'line',
-                yAxisID: 'y1'
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: { legend: { position: 'top' } },
-            scales: {
-                y: { beginAtZero: true, position: 'left', title: { display: true, text: 'Замовлення' } },
-                y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'Дохід (UAH)' }, grid: { drawOnChartArea: false } }
-            }
-        }
-    });
-
-    new Chart(document.getElementById('statusPieChart'), {
-        type: 'doughnut',
-        data: {
-            labels: <?php echo json_encode(array_column($orderStatuses, 'status_name')); ?>,
-            datasets: [{
-                data: <?php echo json_encode(array_column($orderStatuses, 'count')); ?>,
-                backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6c757d', '#0dcaf0']
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: { legend: { position: 'bottom' } }
-        }
-    });
-});
-</script>
-
 <?php include __DIR__ . '/../includes/footer.php'; ?>
