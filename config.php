@@ -644,7 +644,12 @@ function getProductCostPrice($pdo, $productId) {
     ");
     $stmt->execute([$productId]);
     $result = $stmt->fetch();
-    return (float)$result['avg_cost'];
+    $cost = (float)$result['avg_cost'];
+    if ($cost > 0) return $cost;
+    $stmt = $pdo->prepare("SELECT price_purchase FROM erp_products WHERE product_id = ?");
+    $stmt->execute([$productId]);
+    $row = $stmt->fetch();
+    return $row ? (float)$row['price_purchase'] : 0;
 }
 
 function getProductStock($pdo, $productId) {

@@ -293,6 +293,12 @@ if ($action === 'invoice' && $orderId) {
     $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id = ?");
     $stmt->execute([$orderId]);
     $items = $stmt->fetchAll();
+    $totalCost = 0;
+    $totalProfit = 0;
+    foreach ($items as $item) {
+        $totalCost += (float)$item['cost_price'] * (float)$item['quantity'];
+        $totalProfit += (float)$item['profit'];
+    }
 
     $stmt = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM erp_payments WHERE order_id=?");
     $stmt->execute([$orderId]);
@@ -941,6 +947,12 @@ if ($action === 'view' && $orderId) {
     $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id = ?");
     $stmt->execute([$orderId]);
     $items = $stmt->fetchAll();
+    $totalCost = 0;
+    $totalProfit = 0;
+    foreach ($items as $item) {
+        $totalCost += (float)$item['cost_price'] * (float)$item['quantity'];
+        $totalProfit += (float)$item['profit'];
+    }
 
     $stmt = $pdo->prepare("SELECT * FROM erp_payments WHERE order_id = ? ORDER BY date_added ASC");
     $stmt->execute([$orderId]);
@@ -1091,8 +1103,8 @@ if ($action === 'view' && $orderId) {
                                 <tr class="fw-bold">
                                     <td colspan="3">Разом</td>
                                     <td class="text-end"><?php echo formatMoney($order['total']); ?></td>
-                                    <td></td>
-                                    <td></td>
+                                    <td class="text-end"><?php echo formatMoney($totalCost); ?></td>
+                                    <td class="text-end <?php echo $totalProfit > 0 ? 'text-success' : ($totalProfit < 0 ? 'text-danger' : ''); ?>"><?php echo formatMoney($totalProfit); ?></td>
                                 </tr>
                             </tfoot>
                         </table>
