@@ -638,7 +638,9 @@ function logActivity($pdo, $type, $message, $source = null, $data = null, $userI
 
 function getProductCostPrice($pdo, $productId) {
     $stmt = $pdo->prepare("
-        SELECT COALESCE(AVG(sm.cost_price), 0) as avg_cost
+        SELECT CASE WHEN SUM(sm.quantity) > 0
+            THEN SUM(sm.cost_price * sm.quantity) / SUM(sm.quantity)
+            ELSE 0 END as avg_cost
         FROM erp_stock_moves sm
         WHERE sm.product_id = ? AND sm.type IN ('in', 'return_in') AND sm.cost_price > 0
     ");
