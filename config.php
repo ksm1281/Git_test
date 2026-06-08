@@ -640,7 +640,7 @@ function getProductCostPrice($pdo, $productId, $quantity = 1) {
     $stmt = $pdo->prepare("
         SELECT sm.cost_price, sm.quantity, sm.date_added
         FROM erp_stock_moves sm
-        WHERE sm.product_id = ? AND sm.type IN ('in', 'return_in') AND sm.cost_price > 0
+        WHERE sm.product_id = ? AND sm.type IN ('in', 'return_in', 'adjustment') AND sm.cost_price > 0
         ORDER BY sm.date_added ASC
     ");
     $stmt->execute([$productId]);
