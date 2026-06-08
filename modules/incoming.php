@@ -563,6 +563,7 @@ if ($action === 'view' && $invoiceId) {
     $stmt->execute([$invoiceId]);
     $invoiceTxns = $stmt->fetchAll();
     ?>
+    <div x-data="paymentEdit">
     <div class="row mt-3 g-3">
         <div class="col-md-6">
             <div class="card">
@@ -581,7 +582,8 @@ if ($action === 'view' && $invoiceId) {
                                 <td class="text-end fw-bold text-danger"><?php echo formatMoney($pmt['amount']); ?></td>
                                 <td><?php echo escape($pmt['notes'] ?: '-'); ?></td>
                                 <td class="text-center">
-                                    <button class="btn btn-sm btn-outline-primary edit-payment"
+                                    <button class="btn btn-sm btn-outline-primary"
+                                        @click="openEdit($event.currentTarget)"
                                         data-id="<?php echo $pmt['payment_id']; ?>"
                                         data-amount="<?php echo $pmt['amount']; ?>"
                                         data-method="<?php echo $pmt['method']; ?>"
@@ -673,7 +675,7 @@ if ($action === 'view' && $invoiceId) {
     </div>
 
     <!-- Edit Payment Modal -->
-    <div class="modal fade" id="editPaymentModal" tabindex="-1">
+    <div class="modal fade" tabindex="-1" x-ref="modal">
         <div class="modal-dialog">
             <div class="modal-content">
                 <form method="post" action="?action=update_payment&id=<?php echo $invoiceId; ?>">
@@ -682,14 +684,14 @@ if ($action === 'view' && $invoiceId) {
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <input type="hidden" name="payment_id" id="editPaymentId" value="0">
+                        <input type="hidden" name="payment_id" :value="payment.id">
                         <div class="mb-3">
                             <label class="form-label">Сума (UAH) *</label>
-                            <input type="number" name="amount" id="editPaymentAmount" class="form-control" step="0.01" min="0.01" required>
+                            <input type="number" name="amount" x-model="payment.amount" class="form-control" step="0.01" min="0.01" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Метод</label>
-                            <select name="method" id="editPaymentMethod" class="form-select">
+                            <select name="method" x-model="payment.method" class="form-select">
                                 <option value="cash">Готівка</option>
                                 <option value="card">Картка</option>
                                 <option value="fop">ФОП</option>
@@ -699,11 +701,11 @@ if ($action === 'view' && $invoiceId) {
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Дата</label>
-                            <input type="date" name="date" id="editPaymentDate" class="form-control">
+                            <input type="date" name="date" x-model="payment.date" class="form-control">
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Примітка</label>
-                            <input type="text" name="notes" id="editPaymentNotes" class="form-control">
+                            <input type="text" name="notes" x-model="payment.notes" class="form-control">
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -714,19 +716,7 @@ if ($action === 'view' && $invoiceId) {
             </div>
         </div>
     </div>
-
-    <script>
-    document.querySelectorAll('.edit-payment').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            document.getElementById('editPaymentId').value = this.dataset.id;
-            document.getElementById('editPaymentAmount').value = this.dataset.amount;
-            document.getElementById('editPaymentMethod').value = this.dataset.method;
-            document.getElementById('editPaymentDate').value = this.dataset.date;
-            document.getElementById('editPaymentNotes').value = this.dataset.notes;
-            new bootstrap.Modal(document.getElementById('editPaymentModal')).show();
-        });
-    });
-    </script>
+    </div>
     <?php
     include __DIR__ . '/../includes/footer.php';
     exit;

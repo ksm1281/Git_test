@@ -488,6 +488,21 @@
                 finally { this.pushingPrices = false; }
             }
         }));
+
+        Alpine.data('paymentEdit', () => ({
+            payment: { id: 0, amount: '', method: 'cash', date: '', notes: '' },
+
+            openEdit(btn) {
+                this.payment = {
+                    id: parseInt(btn.dataset.id) || 0,
+                    amount: btn.dataset.amount || '',
+                    method: btn.dataset.method || 'cash',
+                    date: btn.dataset.date || '',
+                    notes: btn.dataset.notes || '',
+                };
+                new bootstrap.Modal(this.$refs.modal).show();
+            }
+        }));
     });
     </script>
     </div>
