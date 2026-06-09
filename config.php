@@ -668,7 +668,60 @@ function getProductCostPrice($pdo, $productId, $quantity = 1) {
         $toSkip = 0;
         if ($need <= 0) break;
     }
-    return $quantity > 0 ? ($totalCost / $quantity) : 0;
+    if ($need > 0) {
+        $actualQty = $quantity - $need;
+        if ($actualQty <= 0 || $totalCost == 0) {
+            $stmt = $pdo->prepare("SELECT price_purchase FROM erp_products WHERE product_id = ?");
+            $stmt->execute([$productId]);
+            $row = $stmt->fetch();
+            return $row ? (float)$row['price_purchase'] : 0;
+        }
+        return $totalCost / $actualQty;
+    }
+    if ($totalCost == 0) {
+        $stmt = $pdo->prepare("SELECT price_purchase FROM erp_products WHERE product_id = ?");
+        $stmt->execute([$productId]);
+        $row = $stmt->fetch();
+        return $row ? (float)$row['price_purchase'] : 0;
+    }
+    return $totalCost / $quantity;
+}
+
+function getProductCostBreakdown($pdo, $productId) {
+    $stmt = $pdo->prepare("
+        SELECT sm.cost_price, sm.quantity, sm.date_added
+        FROM erp_stock_moves sm
+        WHERE sm.product_id = ? AND sm.type IN ('in', 'return_in', 'adjustment') AND sm.cost_price > 0
+        ORDER BY sm.date_added ASC
+    ");
+    $stmt->execute([$productId]);
+    $inMoves = $stmt->fetchAll();
+    if (empty($inMoves)) {
+        $stmt = $pdo->prepare("SELECT price_purchase, quantity FROM erp_products WHERE product_id = ?");
+        $stmt->execute([$productId]);
+        $row = $stmt->fetch();
+        if ($row && (float)$row['price_purchase'] > 0) {
+            $qty = getProductStock($pdo, $productId);
+            if ($qty > 0) return [['qty' => $qty, 'cost_price' => (float)$row['price_purchase']]];
+        }
+        return [];
+    }
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(quantity), 0) FROM erp_stock_moves WHERE product_id = ? AND type = 'out'");
+    $stmt->execute([$productId]);
+    $soldQty = (float)$stmt->fetchColumn();
+    $toSkip = $soldQty;
+    $result = [];
+    foreach ($inMoves as $move) {
+        $batchQty = (float)$move['quantity'];
+        $costPrice = (float)$move['cost_price'];
+        if ($toSkip >= $batchQty) { $toSkip -= $batchQty; continue; }
+        $available = $batchQty - $toSkip;
+        if ($available > 0) {
+            $result[] = ['qty' => $available, 'cost_price' => $costPrice];
+        }
+        $toSkip = 0;
+    }
+    return $result;
 }
 
 function getProductStock($pdo, $productId) {

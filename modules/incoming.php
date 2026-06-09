@@ -183,7 +183,7 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $quantities = $_POST['quantity'] ?? [];
         $pricesForeign = $_POST['price_foreign'] ?? [];
 
-        $errorRows = [];
+        $skipped = 0;
         $totalForeign = 0;
         $totalLocal = 0;
 
@@ -192,12 +192,8 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $qty = (float)($quantities[$i] ?? 0);
             $pf = (float)($pricesForeign[$i] ?? 0);
 
-            if ($pid <= 0) {
-                $errorRows[] = 'Рядок ' . ($i + 1) . ': не вибрано товар';
-                continue;
-            }
-            if ($qty <= 0) {
-                $errorRows[] = 'Рядок ' . ($i + 1) . ': некоректна кількість';
+            if ($pid <= 0 || $qty <= 0) {
+                $skipped++;
                 continue;
             }
 
@@ -217,17 +213,13 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 ->execute([$pl, $pid, $pl]);
         }
 
-        if (!empty($errorRows)) {
-            $pdo->rollBack();
-            flashMessage('error', implode('<br>', $errorRows));
-            redirect(BASE_URL . '/modules/incoming.php?action=create');
-        }
-
         $stmt = $pdo->prepare("UPDATE erp_incoming_invoices SET total_foreign = ?, total_local = ? WHERE invoice_id = ?");
         $stmt->execute([$totalForeign, $totalLocal, $invoiceId]);
 
         $pdo->commit();
-        flashMessage('success', 'Накладну #' . $invoiceNumber . ' створено');
+        $msg = 'Накладну #' . $invoiceNumber . ' створено';
+        if ($skipped > 0) $msg .= '. Пропущено ' . $skipped . ' рядків без товару';
+        flashMessage('success', $msg);
         redirect(BASE_URL . '/modules/incoming.php');
     } catch (Exception $e) {
         $pdo->rollBack();
@@ -269,7 +261,7 @@ if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId)
         $quantities = $_POST['quantity'] ?? [];
         $pricesForeign = $_POST['price_foreign'] ?? [];
 
-        $errorRows = [];
+        $skipped = 0;
         $totalForeign = 0;
         $totalLocal = 0;
 
@@ -278,12 +270,8 @@ if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId)
             $qty = (float)($quantities[$i] ?? 0);
             $pf = (float)($pricesForeign[$i] ?? 0);
 
-            if ($pid <= 0) {
-                $errorRows[] = 'Рядок ' . ($i + 1) . ': не вибрано товар';
-                continue;
-            }
-            if ($qty <= 0) {
-                $errorRows[] = 'Рядок ' . ($i + 1) . ': некоректна кількість';
+            if ($pid <= 0 || $qty <= 0) {
+                $skipped++;
                 continue;
             }
 
@@ -303,17 +291,13 @@ if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST' && $invoiceId)
                 ->execute([$pl, $pid, $pl]);
         }
 
-        if (!empty($errorRows)) {
-            $pdo->rollBack();
-            flashMessage('error', implode('<br>', $errorRows));
-            redirect(BASE_URL . '/modules/incoming.php?action=edit&id=' . $invoiceId);
-        }
-
         $pdo->prepare("UPDATE erp_incoming_invoices SET total_foreign = ?, total_local = ? WHERE invoice_id = ?")
             ->execute([$totalForeign, $totalLocal, $invoiceId]);
 
         $pdo->commit();
-        flashMessage('success', 'Накладну #' . $invoiceNumber . ' оновлено');
+        $msg = 'Накладну #' . $invoiceNumber . ' оновлено';
+        if ($skipped > 0) $msg .= '. Пропущено ' . $skipped . ' рядків без товару';
+        flashMessage('success', $msg);
         redirect(BASE_URL . '/modules/incoming.php');
     } catch (Exception $e) {
         $pdo->rollBack();
@@ -767,7 +751,7 @@ if ($action === 'create' || $action === 'edit') {
             ];
         }
     } else {
-        $alpineItems[] = ['product_id' => '', 'name' => '', 'qty' => 1, 'price' => 0, 'prices' => []];
+        $alpineItems[] = ['product_id' => 0, 'name' => '', 'qty' => 1, 'price' => 0, 'prices' => []];
     }
 
     $formAction = $isEdit ? 'update&id=' . $invoiceId : 'create';

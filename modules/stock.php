@@ -8,6 +8,12 @@ $productId = (int)($_GET['id'] ?? 0);
 $moveId = (int)($_GET['move_id'] ?? 0);
 $search = trim($_GET['search'] ?? '');
 
+$stockApiConfig = [
+    'syncProductsUrl' => BASE_URL . '/api/sync-products.php',
+    'syncCategoriesUrl' => BASE_URL . '/api/sync-categories.php',
+    'pushPricesUrl' => BASE_URL . '/api/push-prices.php',
+];
+
 $page = max(1, (int)($_GET['page'] ?? 1));
 $perPage = 30;
 
@@ -104,8 +110,16 @@ if ($action === 'adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $notes = trim($_POST['notes'] ?? '');
     $user = getUserData();
     if ($pid && $qty != 0) {
+        if ($costPrice <= 0) {
+            $stmt = $pdo->prepare("SELECT price_purchase FROM erp_products WHERE product_id = ?");
+            $stmt->execute([$pid]);
+            $costPrice = (float)$stmt->fetchColumn();
+            if ($costPrice > 0) {
+                flashMessage('info', 'Собівартість не вказана — встановлено з ціни закупівлі: ' . formatMoney($costPrice));
+            }
+        }
         $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, notes, user_id) VALUES (?, 'adjustment', ?, ?, ?, ?)");
-        $stmt->execute([$pid, $qty, $costPrice ?: null, $notes, $user['user_id']]);
+        $stmt->execute([$pid, $qty, $costPrice > 0 ? $costPrice : null, $notes, $user['user_id']]);
         flashMessage('success', 'Корекцію застосовано');
     } else {
         flashMessage('error', 'Некоректні дані');
@@ -120,8 +134,16 @@ if ($action === 'edit_adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $costPrice = (float)($_POST['cost_price'] ?? 0);
     $notes = trim($_POST['notes'] ?? '');
     if ($eMoveId && $qty != 0) {
+        if ($costPrice <= 0) {
+            $stmt = $pdo->prepare("SELECT price_purchase FROM erp_products p JOIN erp_stock_moves sm ON p.product_id = sm.product_id WHERE sm.move_id = ?");
+            $stmt->execute([$eMoveId]);
+            $costPrice = (float)$stmt->fetchColumn();
+            if ($costPrice > 0) {
+                flashMessage('info', 'Собівартість не вказана — встановлено з ціни закупівлі: ' . formatMoney($costPrice));
+            }
+        }
         $stmt = $pdo->prepare("UPDATE erp_stock_moves SET quantity = ?, cost_price = ?, notes = ? WHERE move_id = ? AND type = 'adjustment'");
-        $stmt->execute([$qty, $costPrice ?: null, $notes, $eMoveId]);
+        $stmt->execute([$qty, $costPrice > 0 ? $costPrice : null, $notes, $eMoveId]);
         flashMessage('success', 'Корекцію оновлено');
     } else {
         flashMessage('error', 'Некоректні дані');
@@ -265,7 +287,7 @@ if ($action === 'categories') {
     $categories = getCategories($pdo);
     include __DIR__ . '/../includes/header.php';
     ?>
-    <div x-data="stockPage">
+    <div x-data='stockPage(<?php echo htmlspecialchars(json_encode($stockApiConfig), ENT_QUOTES, 'UTF-8'); ?>)'>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="bi bi-tags"></i> Категорії товарів</h4>
         <div>
@@ -412,7 +434,7 @@ if ($action === 'pricing') {
 
     include __DIR__ . '/../includes/header.php';
     ?>
-    <div x-data="stockPage">
+    <div x-data='stockPage(<?php echo htmlspecialchars(json_encode($stockApiConfig), ENT_QUOTES, 'UTF-8'); ?>)'>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="bi bi-currency-exchange"></i> Ціноутворення</h4>
         <div class="d-flex gap-2">
@@ -977,7 +999,8 @@ if ($action === 'corrections') {
 
     include __DIR__ . '/../includes/header.php';
     ?>
-    <div x-data='stockPage(<?php echo htmlspecialchars(json_encode(["products" => $adjustProductsList]), ENT_QUOTES, 'UTF-8'); ?>)'>
+<?php $stockConfig = array_merge($stockApiConfig, ["products" => $adjustProductsList]); ?>
+    <div x-data='stockPage(<?php echo htmlspecialchars(json_encode($stockConfig), ENT_QUOTES, 'UTF-8'); ?>)'>
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0"><i class="bi bi-sliders"></i> Корекції залишків</h4>
         <div>
@@ -1190,7 +1213,7 @@ $allCategories = getCategories($pdo);
 
 include __DIR__ . '/../includes/header.php';
 ?>
-<div x-data='stockPage(<?php echo htmlspecialchars(json_encode(["products" => $adjustProductsList]), ENT_QUOTES, 'UTF-8'); ?>)'>
+<div x-data='stockPage(<?php echo htmlspecialchars(json_encode(array_merge($stockApiConfig, ["products" => $adjustProductsList])), ENT_QUOTES, 'UTF-8'); ?>)'>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h4 class="mb-0"><i class="bi bi-boxes"></i> Склад</h4>
@@ -1284,7 +1307,23 @@ include __DIR__ . '/../includes/header.php';
                         <td class="text-end"><?php echo $p['price_wholesale'] ? formatMoney($p['price_wholesale']) : '-'; ?></td>
                         <td class="text-end"><?php echo $p['price_semi_wholesale'] ? formatMoney($p['price_semi_wholesale']) : '-'; ?></td>
                         <td class="text-end"><?php echo $p['price_retail'] ? formatMoney($p['price_retail']) : '-'; ?></td>
-                        <td class="text-end"><?php echo $p['price_purchase'] ? formatMoney($p['price_purchase']) : '-'; ?></td>
+                        <?php
+                        $avgCost = $stockQty > 0 ? getProductCostPrice($pdo, (int)$p['product_id'], $stockQty) : 0;
+                        $breakdown = getProductCostBreakdown($pdo, (int)$p['product_id']);
+                        $bdParts = [];
+                        $bdTotalQty = 0;
+                        foreach ($breakdown as $b) {
+                            $bdParts[] = (int)$b['qty'] . '×' . number_format($b['cost_price'], 0, ',', ' ');
+                            $bdTotalQty += (int)$b['qty'];
+                        }
+                        $bdStr = $bdParts ? implode(' + ', $bdParts) : '';
+                        $missingCost = $stockQty - $bdTotalQty;
+                        ?>
+                        <td class="text-end">
+                            <?php if ($avgCost): ?><?php echo formatMoney($avgCost); ?><?php else: ?>-<?php endif; ?>
+                            <?php if ($bdStr): ?><br><small class="text-muted" style="font-size:10px;white-space:nowrap"><?php echo escape($bdStr); ?></small><?php endif; ?>
+                            <?php if ($missingCost > 0): ?><br><small class="text-warning" style="font-size:10px;">+<?php echo (int)$missingCost; ?> без ціни</small><?php endif; ?>
+                        </td>
                         <td class="text-center col-actions">
                             <button class="btn btn-sm btn-outline-primary" @click='openProductEdit(<?php echo json_encode(array_merge($p, ['category_ids' => $productCategoryIds[$p['product_id']] ?? []]), JSON_UNESCAPED_UNICODE | JSON_HEX_APOS | JSON_HEX_QUOT); ?>)' title="Редагувати товар">
                                 <i class="bi bi-pencil"></i>

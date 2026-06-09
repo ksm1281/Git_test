@@ -108,6 +108,7 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $errorRows = [];
+        $belowCost = false;
         $total = 0;
         for ($i = 0; $i < count($productIds); $i++) {
             $pid = (int)($productIds[$i] ?? 0);
@@ -127,6 +128,11 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $total += $lineTotal;
 
             $costPrice = getProductCostPrice($pdo, $pid, $qty);
+
+            if ($costPrice > 0 && $price < $costPrice) {
+                $belowCost = true;
+            }
+
             $profit = $lineTotal - ($costPrice * $qty);
 
             $stmt = $pdo->prepare("INSERT INTO erp_order_products (order_id, product_id, name, quantity, price, total, cost_price, profit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
@@ -138,14 +144,14 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        if (!empty($errorRows)) {
+        if ($belowCost && !($_POST['confirmed_below_cost'] ?? false)) {
             $pdo->rollBack();
-            flashMessage('error', implode('<br>', $errorRows));
-            if ($orderId) {
-                redirect(BASE_URL . '/modules/orders.php?action=edit&id=' . $orderId);
-            } else {
-                redirect(BASE_URL . '/modules/orders.php?action=create');
-            }
+            flashMessage('error', 'Деякі товари продаються нижче собівартості. Позначте чекбокс "Продаж нижче собівартості" для підтвердження.');
+            redirect(BASE_URL . '/modules/orders.php?action=' . ($orderId ? 'edit&id=' . $orderId : 'create'));
+        }
+
+        if (!empty($errorRows)) {
+            flashMessage('warning', implode('<br>', $errorRows));
         }
 
         $pdo->prepare("UPDATE erp_orders SET total=? WHERE order_id=?")->execute([$total, $orderId]);
@@ -856,6 +862,9 @@ if ($action === 'create' || $action === 'edit') {
                                                 <span x-text="p.name"></span>
                                                 <small class="text-muted" x-show="p.price_retail > 0"
                                                        x-text="' - ' + parseFloat(p.price_retail).toFixed(2) + ' ₴'"></small>
+                                                <br x-show="p.cost_breakdown">
+                                                <small class="text-muted" x-show="p.cost_breakdown"
+                                                       x-text="'С/с: ' + p.cost_breakdown" style="font-size:10px"></small>
                                             </button>
                                         </template>
                                     </div>
@@ -925,18 +934,23 @@ if ($action === 'create' || $action === 'edit') {
                 </div>
                 <?php endif; ?>
 
-                <?php if (!$isEdit): ?>
-                <div class="mt-3">
-                    <div class="form-check">
+                <div class="mt-3 d-flex align-items-center gap-3 flex-wrap" id="orderSubmitArea">
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> <?php echo $submitLabel; ?></button>
+                    <?php if (!$isEdit): ?>
+                    <div class="form-check mb-0">
                         <input class="form-check-input" type="checkbox" name="send_notification" id="sendNotification" value="1" checked>
                         <label class="form-check-label" for="sendNotification">
-                            <i class="bi bi-telegram"></i> Надіслати сповіщення в Telegram
+                            <i class="bi bi-telegram"></i> Сповіщення
+                        </label>
+                    </div>
+                    <?php endif; ?>
+                    <div class="form-check mb-0">
+                        <input class="form-check-input" type="checkbox" name="confirmed_below_cost" id="confirmedBelowCost" value="1">
+                        <label class="form-check-label" for="confirmedBelowCost" style="color:#dc3545;font-size:0.875rem;">
+                            <i class="bi bi-exclamation-triangle"></i> Продаж нижче собівартості
                         </label>
                     </div>
                 </div>
-                <?php endif; ?>
-
-                <button type="submit" class="btn btn-primary mt-3"><i class="bi bi-save"></i> <?php echo $submitLabel; ?></button>
             </form>
         </div>
     </div>

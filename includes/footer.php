@@ -332,7 +332,7 @@
             submitOrder() {
                 const belowCost = this.items.some(item => item.costPrice > 0 && item.price < item.costPrice);
                 if (belowCost && !confirm('Деякі товари продаються нижче собівартості. Продовжити?')) return;
-                this.$el.querySelector('form').submit();
+                this.$el.submit();
             }
         }));
 

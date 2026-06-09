@@ -28,7 +28,14 @@ try {
     $stmt->execute([$s, $s, $s]);
     $rows = $stmt->fetchAll();
     foreach ($rows as &$row) {
-        $row['cost_price'] = getProductCostPrice($pdo, (int)$row['product_id']);
+        $pid = (int)$row['product_id'];
+        $row['cost_price'] = getProductCostPrice($pdo, $pid);
+        $bd = getProductCostBreakdown($pdo, $pid);
+        $parts = [];
+        foreach ($bd as $b) {
+            $parts[] = (int)$b['qty'] . '×' . number_format($b['cost_price'], 0, ',', ' ');
+        }
+        $row['cost_breakdown'] = $parts ? implode(' + ', $parts) : '';
     }
     unset($row);
     echo json_encode($rows, JSON_UNESCAPED_UNICODE);
