@@ -634,13 +634,32 @@ class OpenCartDbClient {
 
         $this->pdo->beginTransaction();
         try {
-            $stmt = $this->pdo->prepare("UPDATE {$prefix}product SET price = ? WHERE product_id = ?");
+            $priceStmt = $this->pdo->prepare("UPDATE {$prefix}product SET price = ? WHERE product_id = ?");
+            $delDiscStmt = $this->pdo->prepare("DELETE FROM {$prefix}product_discount WHERE product_id = ?");
+            $getCgStmt = $this->pdo->prepare("SELECT MIN(customer_group_id) FROM {$prefix}product_discount WHERE product_id = ?");
+            $insDiscStmt = $this->pdo->prepare("INSERT INTO {$prefix}product_discount (product_id, customer_group_id, quantity, priority, price, date_start, date_end) VALUES (?, ?, ?, 0, ?, '0000-00-00', '0000-00-00')");
+
             foreach ($products as $p) {
+                $pid = $p['product_id'];
                 try {
-                    $stmt->execute([$p['price_retail'], $p['product_id']]);
+                    $priceStmt->execute([$p['price_retail'], $pid]);
+
+                    $getCgStmt->execute([$pid]);
+                    $cgId = (int)$getCgStmt->fetchColumn();
+                    if ($cgId <= 0) $cgId = 1;
+
+                    $delDiscStmt->execute([$pid]);
+
+                    if ((float)$p['price_semi_wholesale'] > 0) {
+                        $insDiscStmt->execute([$pid, $cgId, 6, $p['price_semi_wholesale']]);
+                    }
+                    if ((float)$p['price_wholesale'] > 0) {
+                        $insDiscStmt->execute([$pid, $cgId, 12, $p['price_wholesale']]);
+                    }
+
                     $updated++;
                 } catch (Exception $e) {
-                    $errors[] = "ID {$p['product_id']}: " . $e->getMessage();
+                    $errors[] = "ID {$pid}: " . $e->getMessage();
                 }
             }
             $this->pdo->commit();

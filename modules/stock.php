@@ -226,19 +226,25 @@ if ($action === 'save_rule' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManage
     $cpw = (float)($_POST['custom_price_wholesale'] ?? 0);
     $cps = (float)($_POST['custom_price_semi_wholesale'] ?? 0);
     $cpr = (float)($_POST['custom_price_retail'] ?? 0);
+    $priceEur = (float)($_POST['price_eur'] ?? 0);
     if ($productId) {
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM erp_pricing_rules WHERE product_id = ?");
         $stmt->execute([$productId]);
         if ($stmt->fetchColumn() > 0) {
-            $stmt = $pdo->prepare("UPDATE erp_pricing_rules SET markup_wholesale=?, markup_semi_wholesale=?, markup_retail=?, use_custom=?, custom_price_wholesale=?, custom_price_semi_wholesale=?, custom_price_retail=? WHERE product_id=?");
-            $stmt->execute([$mw, $ms, $mr, $useCustom, $cpw, $cps, $cpr, $productId]);
+            $stmt = $pdo->prepare("UPDATE erp_pricing_rules SET markup_wholesale=?, markup_semi_wholesale=?, markup_retail=?, use_custom=?, custom_price_wholesale=?, custom_price_semi_wholesale=?, custom_price_retail=?, price_eur=? WHERE product_id=?");
+            $stmt->execute([$mw, $ms, $mr, $useCustom, $cpw, $cps, $cpr, $priceEur, $productId]);
         } else {
-            $stmt = $pdo->prepare("INSERT INTO erp_pricing_rules (product_id, markup_wholesale, markup_semi_wholesale, markup_retail, use_custom, custom_price_wholesale, custom_price_semi_wholesale, custom_price_retail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$productId, $mw, $ms, $mr, $useCustom, $cpw, $cps, $cpr]);
+            $stmt = $pdo->prepare("INSERT INTO erp_pricing_rules (product_id, markup_wholesale, markup_semi_wholesale, markup_retail, use_custom, custom_price_wholesale, custom_price_semi_wholesale, custom_price_retail, price_eur) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$productId, $mw, $ms, $mr, $useCustom, $cpw, $cps, $cpr, $priceEur]);
         }
         flashMessage('success', 'Правило ціноутворення збережено');
     }
-    redirect(BASE_URL . '/modules/stock.php?action=pricing');
+    $qs = 'action=pricing';
+    foreach (['search' => 'pricing_search', 'category_id' => 'pricing_category_id', 'pricing_page' => 'pricing_page'] as $get => $post) {
+        $v = trim($_POST[$post] ?? '');
+        if ($v !== '') $qs .= '&' . $get . '=' . urlencode($v);
+    }
+    redirect(BASE_URL . '/modules/stock.php?' . $qs);
 }
 
 if ($action === 'save_category' && $_SERVER['REQUEST_METHOD'] === 'POST' && isAdmin()) {
@@ -383,6 +389,10 @@ if ($action === 'pricing') {
     $markups = getDefaultMarkups($pdo);
     $rates = getCurrentRates($pdo);
 
+    try {
+        $pdo->exec("ALTER TABLE erp_pricing_rules ADD COLUMN price_eur DECIMAL(12,2) NOT NULL DEFAULT 0");
+    } catch (Exception $e) {}
+
     $pricingSearch = trim($_GET['search'] ?? '');
     $pricingCategoryId = (int)($_GET['category_id'] ?? 0);
     $pricingPage = max(1, (int)($_GET['pricing_page'] ?? 1));
@@ -406,7 +416,7 @@ if ($action === 'pricing') {
     $pricingTotal = $stmt->fetchColumn();
     $pricingPagination = paginate($pricingTotal, $pricingPerPage, $pricingPage);
 
-    $pricingSql = "SELECT p.*, pr.markup_wholesale, pr.markup_semi_wholesale, pr.markup_retail, pr.use_custom, pr.custom_price_wholesale, pr.custom_price_semi_wholesale, pr.custom_price_retail,
+    $pricingSql = "SELECT p.*, pr.markup_wholesale, pr.markup_semi_wholesale, pr.markup_retail, pr.use_custom, pr.custom_price_wholesale, pr.custom_price_semi_wholesale, pr.custom_price_retail, pr.price_eur,
         COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
         COALESCE(SUM(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.quantity ELSE 0 END) - SUM(CASE WHEN sm.type IN ('out','return_out') THEN sm.quantity ELSE 0 END), 0) as stock_qty,
         COALESCE((SELECT currency FROM erp_incoming_invoices ii JOIN erp_invoice_items iit ON ii.invoice_id = iit.invoice_id WHERE iit.product_id = p.product_id ORDER BY ii.date_added DESC LIMIT 1), 'EUR') as purchase_currency
@@ -505,7 +515,8 @@ if ($action === 'pricing') {
                         <col style="width:110px">
                         <col style="width:70px">
                         <col style="width:60px">
-                        <col style="width:100px">
+                        <col style="width:90px">
+                        <col style="width:90px">
                         <col style="width:105px">
                         <col style="width:85px">
                         <col style="width:85px">
@@ -519,7 +530,8 @@ if ($action === 'pricing') {
                             <th style="width:110px">Категорія</th>
                             <th style="width:70px" class="text-center">Залишок</th>
                             <th style="width:60px" class="text-center">Валюта</th>
-                            <th style="width:100px" class="text-end">Собівартість</th>
+                            <th style="width:90px" class="text-end">EUR ціна</th>
+                            <th style="width:90px" class="text-end">Собівартість (ін.)</th>
                             <th style="width:105px" class="text-end">Собівартість (UAH)</th>
                             <th style="width:85px" class="text-end">Опт</th>
                             <th style="width:85px" class="text-end">Дріб. опт</th>
@@ -532,10 +544,11 @@ if ($action === 'pricing') {
                         <?php
                             $stockQty = (float)$p['stock_qty'];
                             $pCats = $pricingProductCategories[$p['product_id']] ?? [];
-                            $purchaseCur = $p['purchase_currency'] ?: 'EUR';
+                            $priceEur = (float)$p['price_eur'];
+                            $costForeign = $priceEur > 0 ? $priceEur : (float)$p['avg_cost'];
+                            $purchaseCur = $priceEur > 0 ? 'EUR' : ($p['purchase_currency'] ?: 'EUR');
                             $rate = $rates[$purchaseCur] ?? $rates['EUR'];
-                            $costForeign = (float)$p['avg_cost'];
-                            $costUah = $costForeign * $rate;
+                            $costUah = round($costForeign * $rate);
                             $mw = $p['markup_wholesale'] ?? $markups['default_markup_wholesale'];
                             $ms = $p['markup_semi_wholesale'] ?? $markups['default_markup_semi_wholesale'];
                             $mr = $p['markup_retail'] ?? $markups['default_markup_retail'];
@@ -543,6 +556,7 @@ if ($action === 'pricing') {
                             $ps = $p['use_custom'] ? $p['custom_price_semi_wholesale'] : calculatePrice($costUah, $ms);
                             $pr = $p['use_custom'] ? $p['custom_price_retail'] : calculatePrice($costUah, $mr);
                             $noStock = $stockQty <= 0;
+                            $hasEurPrice = $priceEur > 0;
                         ?>
                         <tr class="<?php echo $noStock ? 'table-warning' : ''; ?>">
                             <td><input type="checkbox" class="pricing-checkbox" value="<?php echo (int)$p['product_id']; ?>"></td>
@@ -551,11 +565,15 @@ if ($action === 'pricing') {
                                 <?php if ($noStock): ?>
                                 <span class="badge bg-warning text-dark">Немає в наявності</span>
                                 <?php endif; ?>
+                                <?php if ($hasEurPrice): ?>
+                                <span class="badge bg-info text-dark">EUR ціна</span>
+                                <?php endif; ?>
                             </td>
                             <td><span class="cat-label"><?php echo $pCats ? escape(implode(', ', $pCats)) : '-'; ?></span></td>
                             <td class="text-center fw-bold"><?php echo (int)$stockQty; ?></td>
                             <td class="text-center"><?php echo $purchaseCur; ?></td>
-                            <td class="text-end"><?php echo $costForeign > 0 ? formatMoneyForeign($costForeign, $purchaseCur) : '-'; ?></td>
+                            <td class="text-end fw-bold"><?php echo $hasEurPrice ? formatMoneyForeign($priceEur, 'EUR') : '-'; ?></td>
+                            <td class="text-end"><?php echo $costForeign > 0 && !$hasEurPrice ? formatMoneyForeign((float)$p['avg_cost'], $p['purchase_currency'] ?: 'EUR') : '-'; ?></td>
                             <td class="text-end"><?php echo $costUah > 0 ? formatMoney($costUah) : '-'; ?></td>
                             <td class="text-end fw-bold"><?php echo formatMoney($pw); ?></td>
                             <td class="text-end fw-bold"><?php echo formatMoney($ps); ?></td>
@@ -571,6 +589,7 @@ if ($action === 'pricing') {
                                     data-cpw="<?php echo (float)$p['custom_price_wholesale']; ?>"
                                     data-cps="<?php echo (float)$p['custom_price_semi_wholesale']; ?>"
                                     data-cpr="<?php echo (float)$p['custom_price_retail']; ?>"
+                                    data-price-eur="<?php echo (float)$p['price_eur']; ?>"
                                     title="Налаштувати ціни"
                                     @click="openPricingEdit($event.currentTarget)">
                                     <i class="bi bi-sliders"></i>
@@ -603,6 +622,14 @@ if ($action === 'pricing') {
                     </div>
                     <div class="modal-body">
                         <input type="hidden" name="product_id" :value="editPricing.product_id">
+                        <input type="hidden" name="pricing_search" value="<?php echo escape($pricingSearch); ?>">
+                        <input type="hidden" name="pricing_category_id" value="<?php echo (int)$pricingCategoryId; ?>">
+                        <input type="hidden" name="pricing_page" value="<?php echo $pricingPage; ?>">
+                        <div class="mb-3">
+                            <label class="form-label">Ціна в EUR</label>
+                            <input type="number" name="price_eur" x-model.number="editPricing.price_eur" class="form-control" step="0.01" min="0">
+                            <small class="text-muted">Якщо задано, використовується як базова собівартість (конвертується за курсом EUR) замість середньої собівартості з руху складу. Корисно для товарів без залишку.</small>
+                        </div>
                         <div class="mb-3">
                             <div class="form-check form-switch mb-2">
                                 <input class="form-check-input" type="checkbox" name="use_custom" id="useCustom" value="1" x-model="editPricing.use_custom">

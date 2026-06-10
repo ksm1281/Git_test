@@ -342,7 +342,7 @@
             editCategory: { id: 0, name: '', sort_order: 0 },
             editProduct: { product_id: 0, name: '', model: '', sku: '', category_ids: [], price_wholesale: '', price_semi_wholesale: '', price_retail: '', price_purchase: '' },
             editCorrection: { move_id: 0, product_id: 0, quantity: 0, cost_price: '', notes: '' },
-            editPricing: { product_id: 0, name: '', mw: 0, ms: 0, mr: 0, use_custom: false, cpw: 0, cps: 0, cpr: 0 },
+            editPricing: { product_id: 0, name: '', mw: 0, ms: 0, mr: 0, use_custom: false, cpw: 0, cps: 0, cpr: 0, price_eur: 0 },
 
             adjustQuery: '',
             adjustResults: [],
@@ -394,7 +394,8 @@
                     use_custom: btn.dataset.useCustom === '1',
                     cpw: parseFloat(btn.dataset.cpw) || 0,
                     cps: parseFloat(btn.dataset.cps) || 0,
-                    cpr: parseFloat(btn.dataset.cpr) || 0
+                    cpr: parseFloat(btn.dataset.cpr) || 0,
+                    price_eur: parseFloat(btn.dataset.priceEur) || 0
                 };
                 bootstrap.Modal.getOrCreateInstance(this.$refs.pricingModal).show();
             },

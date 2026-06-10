@@ -1,29 +1,44 @@
 <?php
+/**
+ * Cron endpoint for automated price push to OpenCart.
+ * 
+ * Usage (crontab):
+ *   0 3 * * * curl -s "https://example.com/ERP/api/cron-push-prices.php?key=YOUR_CRON_SECRET"
+ *   Or every hour:
+ *   0 * * * * curl -s "https://example.com/ERP/api/cron-push-prices.php?key=YOUR_CRON_SECRET"
+ */
+
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../_helpers.php';
 require_once __DIR__ . '/../includes/opencart_api.php';
 
-requireLogin();
-header('Content-Type: application/json');
+header('Content-Type: text/plain; charset=utf-8');
 
-if (!isAdmin()) {
-    echo json_encode(['error' => 'Недостатньо прав']);
-    exit;
+// Auth: secret key via GET or via config (for CLI mode)
+$key = trim($_GET['key'] ?? '');
+$allowedKey = defined('CRON_SECRET') ? CRON_SECRET : '';
+$isCli = (PHP_SAPI === 'cli');
+
+if (!$isCli) {
+    if (!$allowedKey || $key !== $allowedKey) {
+        if (empty($allowedKey)) {
+            echo "ERROR: CRON_SECRET not configured in config.local.php\n";
+        } else {
+            echo "ERROR: Invalid or missing key parameter\n";
+        }
+        exit(1);
+    }
 }
 
-try {
-    $rates = getCurrentRates($pdo);
-    $markups = getDefaultMarkups($pdo);
+$startTime = microtime(true);
 
+try {
     try {
         $pdo->exec("ALTER TABLE erp_pricing_rules ADD COLUMN price_eur DECIMAL(12,2) NOT NULL DEFAULT 0");
     } catch (Exception $e) {}
 
-    $input = json_decode(file_get_contents('php://input'), true);
-    $selectedIds = isset($input['product_ids']) ? array_map('intval', (array)$input['product_ids']) : [];
-
-    $having = $selectedIds ? '' : 'HAVING avg_cost > 0 OR price_eur > 0';
-    $whereIds = $selectedIds ? 'WHERE p.product_id IN (' . implode(',', $selectedIds) . ')' : '';
+    $rates = getCurrentRates($pdo);
+    $markups = getDefaultMarkups($pdo);
 
     $sql = "SELECT p.product_id, p.name,
         COALESCE(AVG(CASE WHEN sm.type IN ('in','return_in','adjustment') THEN sm.cost_price ELSE NULL END), 0) as avg_cost,
@@ -32,15 +47,14 @@ try {
         FROM erp_products p
         LEFT JOIN erp_pricing_rules pr ON p.product_id = pr.product_id
         LEFT JOIN erp_stock_moves sm ON p.product_id = sm.product_id
-        $whereIds
         GROUP BY p.product_id
-        $having
+        HAVING avg_cost > 0 OR price_eur > 0
         ORDER BY p.name ASC";
     $products = $pdo->query($sql)->fetchAll();
 
     if (empty($products)) {
-        echo json_encode(['error' => 'Немає товарів із собівартістю або ціною в EUR.']);
-        exit;
+        echo "OK: No products with cost or EUR price\n";
+        exit(0);
     }
 
     $pricingRules = [];
@@ -49,10 +63,9 @@ try {
         $pricingRules[$r['product_id']] = $r;
     }
 
+    $updateStmt = $pdo->prepare("UPDATE erp_products SET price_wholesale = ?, price_semi_wholesale = ?, price_retail = ? WHERE product_id = ?");
     $toUpdate = [];
     $erpUpdated = 0;
-
-    $updateStmt = $pdo->prepare("UPDATE erp_products SET price_wholesale = ?, price_semi_wholesale = ?, price_retail = ? WHERE product_id = ?");
 
     foreach ($products as $p) {
         $pid = (int)$p['product_id'];
@@ -93,11 +106,17 @@ try {
     $api = new OpenCartDbClient();
     $result = $api->pushPrices($pdo, $toUpdate);
 
-    $result['erp_updated'] = $erpUpdated;
-    $result['rates_used'] = $rates;
+    $elapsed = round(microtime(true) - $startTime, 2);
 
-    echo json_encode($result);
+    echo "OK: ERP updated: {$erpUpdated}, OC pushed: {$result['updated']}, time: {$elapsed}s\n";
+
+    if (!empty($result['errors'])) {
+        echo "WARN: OC errors: " . implode('; ', array_slice($result['errors'], 0, 5)) . "\n";
+    }
+
+    echo "Rates: USD {$rates['USD']}, EUR {$rates['EUR']}\n";
 
 } catch (Exception $e) {
-    echo json_encode(['error' => 'Помилка: ' . $e->getMessage()]);
+    echo "ERROR: " . $e->getMessage() . "\n";
+    exit(1);
 }

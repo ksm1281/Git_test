@@ -29,10 +29,13 @@ if (!defined('OC_DB_PREFIX')) define('OC_DB_PREFIX', 'oc_');
 
 // App Configuration
 define('APP_NAME', 'ERP/CRM');
-define('APP_VERSION', '1.8.0');
+define('APP_VERSION', '1.8.1');
 define('CURRENCY_SYMBOL', '&#8372;');
 define('CURRENCY_CODE', 'UAH');
 define('BASE_CURRENCY', 'UAH');
+
+// Cron secret (set in config.local.php for automated tasks)
+if (!defined('CRON_SECRET')) define('CRON_SECRET', '');
 
 // Paths
 define('BASE_PATH', dirname(__FILE__));
@@ -624,7 +627,7 @@ function getDefaultMarkups($pdo) {
 }
 
 function calculatePrice($costUah, $markupPercent) {
-    return $costUah * (1 + $markupPercent / 100);
+    return round($costUah * (1 + $markupPercent / 100));
 }
 
 function logActivity($pdo, $type, $message, $source = null, $data = null, $userId = null) {
