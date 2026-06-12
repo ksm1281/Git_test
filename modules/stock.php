@@ -103,51 +103,57 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST' && isManager()
 }
 
 if ($action === 'adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isManager()) { flashMessage('error', 'Недостатньо прав'); redirect(BASE_URL . '/modules/stock.php'); }
+    $isAjax = isset($_POST['ajax']);
+    if (!isManager()) { $msg = 'Недостатньо прав'; if ($isAjax) { die(json_encode(['error' => $msg])); } flashMessage('error', $msg); redirect(BASE_URL . '/modules/stock.php'); }
     $pid = (int)($_POST['product_id'] ?? 0);
     $qty = (float)($_POST['quantity'] ?? 0);
     $costPrice = (float)($_POST['cost_price'] ?? 0);
     $notes = trim($_POST['notes'] ?? '');
     $user = getUserData();
+    $ok = false;
     if ($pid && $qty != 0) {
         if ($costPrice <= 0) {
             $stmt = $pdo->prepare("SELECT price_purchase FROM erp_products WHERE product_id = ?");
             $stmt->execute([$pid]);
             $costPrice = (float)$stmt->fetchColumn();
-            if ($costPrice > 0) {
-                flashMessage('info', 'Собівартість не вказана — встановлено з ціни закупівлі: ' . formatMoney($costPrice));
-            }
         }
         $stmt = $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, notes, user_id) VALUES (?, 'adjustment', ?, ?, ?, ?)");
         $stmt->execute([$pid, $qty, $costPrice > 0 ? $costPrice : null, $notes, $user['user_id']]);
-        flashMessage('success', 'Корекцію застосовано');
-    } else {
-        flashMessage('error', 'Некоректні дані');
+        $ok = true;
     }
+    if ($isAjax) {
+        header('Content-Type: application/json');
+        echo json_encode($ok ? ['success' => true] : ['error' => 'Некоректні дані']);
+        exit;
+    }
+    if ($ok) { flashMessage('success', 'Корекцію застосовано'); } else { flashMessage('error', 'Некоректні дані'); }
     redirect(BASE_URL . '/modules/stock.php?action=corrections');
 }
 
 if ($action === 'edit_adjust' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isManager()) { flashMessage('error', 'Недостатньо прав'); redirect(BASE_URL . '/modules/stock.php'); }
+    $isAjax = isset($_POST['ajax']);
+    if (!isManager()) { $msg = 'Недостатньо прав'; if ($isAjax) { die(json_encode(['error' => $msg])); } flashMessage('error', $msg); redirect(BASE_URL . '/modules/stock.php'); }
     $eMoveId = (int)($_POST['move_id'] ?? 0);
     $qty = (float)($_POST['quantity'] ?? 0);
     $costPrice = (float)($_POST['cost_price'] ?? 0);
     $notes = trim($_POST['notes'] ?? '');
+    $ok = false;
     if ($eMoveId && $qty != 0) {
         if ($costPrice <= 0) {
             $stmt = $pdo->prepare("SELECT price_purchase FROM erp_products p JOIN erp_stock_moves sm ON p.product_id = sm.product_id WHERE sm.move_id = ?");
             $stmt->execute([$eMoveId]);
             $costPrice = (float)$stmt->fetchColumn();
-            if ($costPrice > 0) {
-                flashMessage('info', 'Собівартість не вказана — встановлено з ціни закупівлі: ' . formatMoney($costPrice));
-            }
         }
         $stmt = $pdo->prepare("UPDATE erp_stock_moves SET quantity = ?, cost_price = ?, notes = ? WHERE move_id = ? AND type = 'adjustment'");
         $stmt->execute([$qty, $costPrice > 0 ? $costPrice : null, $notes, $eMoveId]);
-        flashMessage('success', 'Корекцію оновлено');
-    } else {
-        flashMessage('error', 'Некоректні дані');
+        $ok = true;
     }
+    if ($isAjax) {
+        header('Content-Type: application/json');
+        echo json_encode($ok ? ['success' => true] : ['error' => 'Некоректні дані']);
+        exit;
+    }
+    if ($ok) { flashMessage('success', 'Корекцію оновлено'); } else { flashMessage('error', 'Некоректні дані'); }
     redirect(BASE_URL . '/modules/stock.php?action=corrections');
 }
 
@@ -1098,7 +1104,7 @@ if ($action === 'corrections') {
     <div class="modal fade" id="editCorrectionModal" tabindex="-1" x-ref="editCorrectionModal">
         <div class="modal-dialog">
             <div class="modal-content">
-                <form method="post" action="?action=edit_adjust">
+                <form method="post" action="?action=edit_adjust" @submit.prevent="saveCorrection">
                     <div class="modal-header">
                         <h5 class="modal-title">Редагувати корекцію</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -1134,7 +1140,7 @@ if ($action === 'corrections') {
     <div class="modal fade" id="adjustModal" tabindex="-1" x-ref="adjustModal">
         <div class="modal-dialog">
             <div class="modal-content">
-                <form method="post" action="?action=adjust">
+                <form method="post" action="?action=adjust" @submit.prevent="saveAdjust" x-ref="correctionForm">
                     <div class="modal-header">
                         <h5 class="modal-title">Нова корекція залишків</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -1143,7 +1149,7 @@ if ($action === 'corrections') {
                         <div class="mb-3 position-relative">
                             <label class="form-label required">Товар</label>
                             <input type="text" class="form-control" placeholder="Почніть вводити назву товару..." autocomplete="off" required
-                                   x-model="adjustQuery" @input="searchAdjust()" @focus="if(adjustQuery) searchAdjust()">
+                                   x-model="adjustQuery" @input="searchAdjust()">
                             <input type="hidden" name="product_id" :value="adjustSelectedId">
                             <div class="dropdown-menu w-100" :class="adjustResults.length > 0 ? 'show' : ''" style="max-height:300px;overflow-y:auto;display:block;" x-show="adjustResults.length > 0" x-cloak>
                                 <template x-for="p in adjustResults" :key="p.id">
@@ -1385,7 +1391,7 @@ include __DIR__ . '/../includes/header.php';
 <div class="modal fade" id="adjustModal" tabindex="-1" x-ref="adjustModal">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="post" action="?action=adjust">
+            <form method="post" action="?action=adjust" @submit.prevent="saveAdjust" x-ref="adjustForm">
                 <div class="modal-header">
                     <h5 class="modal-title">Нова корекція залишків</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -1394,7 +1400,7 @@ include __DIR__ . '/../includes/header.php';
                     <div class="mb-3 position-relative">
                         <label class="form-label required">Товар</label>
                         <input type="text" class="form-control" placeholder="Почніть вводити назву товару..." autocomplete="off" required
-                               x-model="adjustQuery" @input="searchAdjust()" @focus="if(adjustQuery) searchAdjust()">
+                               x-model="adjustQuery" @input="searchAdjust()">
                         <input type="hidden" name="product_id" :value="adjustSelectedId">
                         <div class="dropdown-menu w-100" :class="adjustResults.length > 0 ? 'show' : ''" style="max-height:300px;overflow-y:auto;display:block;" x-show="adjustResults.length > 0" x-cloak>
                             <template x-for="p in adjustResults" :key="p.id">

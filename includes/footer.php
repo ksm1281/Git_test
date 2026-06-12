@@ -411,18 +411,45 @@
             },
             searchAdjust() {
                 const q = this.adjustQuery.toLowerCase().trim();
-                this.adjustSelectedId = 0;
                 if (!q) { this.adjustResults = []; return; }
-                this.adjustResults = this.adjustProducts.filter(p =>
+                const filtered = this.adjustProducts.filter(p =>
                     (p.name && p.name.toLowerCase().includes(q)) ||
                     (p.model && p.model.toLowerCase().includes(q)) ||
                     (p.sku && p.sku.toLowerCase().includes(q))
                 ).slice(0, 20);
+                if (!filtered.some(p => p.id === this.adjustSelectedId)) {
+                    this.adjustSelectedId = 0;
+                }
+                this.adjustResults = filtered;
             },
             selectAdjust(p) {
                 this.adjustSelectedId = p.id;
                 this.adjustQuery = p.name + (p.model ? ' (' + p.model + ')' : '');
                 this.adjustResults = [];
+            },
+            async saveAdjust(e) {
+                const form = e.target;
+                const formData = new FormData(form);
+                formData.set('ajax', '1');
+                try {
+                    const r = await fetch(form.action, { method: 'POST', body: formData });
+                    const d = await r.json();
+                    if (d.error) { alert(d.error); return; }
+                    bootstrap.Modal.getInstance(this.$refs.adjustModal).hide();
+                    location.reload();
+                } catch (err) { alert('Помилка: ' + err.message); }
+            },
+            async saveCorrection(e) {
+                const form = e.target;
+                const formData = new FormData(form);
+                formData.set('ajax', '1');
+                try {
+                    const r = await fetch(form.action, { method: 'POST', body: formData });
+                    const d = await r.json();
+                    if (d.error) { alert(d.error); return; }
+                    bootstrap.Modal.getInstance(this.$refs.editCorrectionModal).hide();
+                    location.reload();
+                } catch (err) { alert('Помилка: ' + err.message); }
             },
             toggleSyncOneWrap() {
                 this.syncOneOpen = !this.syncOneOpen;
@@ -435,6 +462,7 @@
                 this.selectAllCorr = checked;
                 document.querySelectorAll('.corr-check').forEach(cb => cb.checked = checked);
             },
+
             toggleCategory(catId) {
                 catId = parseInt(catId);
                 const i = this.editProduct.category_ids.indexOf(catId);
