@@ -75,6 +75,7 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $orderDate = $_POST['order_date'] ?? date('Y-m-d');
     $ttnNumber = trim($_POST['ttn_number'] ?? '');
     $deliveryStatus = $_POST['delivery_status'] ?? 'new';
+    $deliveryCost = (float)($_POST['delivery_cost'] ?? 0);
     $payAmount = (float)($_POST['pay_amount'] ?? 0);
     $payMethod = $_POST['pay_method'] ?? 'cash';
     $payDate = $_POST['pay_date'] ?? date('Y-m-d');
@@ -91,8 +92,8 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $pdo->beginTransaction();
     try {
         if ($orderId) {
-            $stmt = $pdo->prepare("UPDATE erp_orders SET customer_name=?, email=?, telephone=?, status_name=?, erp_notes=?, payment_method=?, delivery_method=?, delivery_address=?, delivery_city=?, delivery_street=?, delivery_building=?, delivery_apartment=?, delivery_office=?, ttn_number=?, delivery_status=?, order_date=? WHERE order_id=?");
-            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $ttnNumber, $deliveryStatus, $orderDate, $orderId]);
+            $stmt = $pdo->prepare("UPDATE erp_orders SET customer_name=?, email=?, telephone=?, status_name=?, erp_notes=?, payment_method=?, delivery_method=?, delivery_address=?, delivery_city=?, delivery_street=?, delivery_building=?, delivery_apartment=?, delivery_office=?, ttn_number=?, delivery_status=?, delivery_cost=?, order_date=? WHERE order_id=?");
+            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $ttnNumber, $deliveryStatus, $deliveryCost, $orderDate, $orderId]);
 
             $oldProducts = $pdo->prepare("SELECT product_id, quantity FROM erp_order_products WHERE order_id=?");
             $oldProducts->execute([$orderId]);
@@ -102,8 +103,8 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $pdo->prepare("DELETE FROM erp_order_products WHERE order_id=?")->execute([$orderId]);
         } else {
-            $stmt = $pdo->prepare("INSERT INTO erp_orders (customer_name, email, telephone, status_name, total, erp_notes, payment_method, delivery_method, delivery_address, delivery_city, delivery_street, delivery_building, delivery_apartment, delivery_office, ttn_number, delivery_status, order_date) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $ttnNumber, $deliveryStatus, $orderDate]);
+            $stmt = $pdo->prepare("INSERT INTO erp_orders (customer_name, email, telephone, status_name, total, erp_notes, payment_method, delivery_method, delivery_address, delivery_city, delivery_street, delivery_building, delivery_apartment, delivery_office, ttn_number, delivery_status, delivery_cost, order_date) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $ttnNumber, $deliveryStatus, $deliveryCost, $orderDate]);
             $orderId = (int)$pdo->lastInsertId();
         }
 
@@ -153,6 +154,8 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($errorRows)) {
             flashMessage('warning', implode('<br>', $errorRows));
         }
+
+        $total += $deliveryCost;
 
         $pdo->prepare("UPDATE erp_orders SET total=? WHERE order_id=?")->execute([$total, $orderId]);
 
@@ -265,7 +268,26 @@ if ($action === 'delivery_status' && $orderId && isManager()) {
     $newDs = $_GET['ds'] ?? '';
     $validDs = ['new', 'sending', 'in_transit', 'arrived', 'delivered', 'returned'];
     if (in_array($newDs, $validDs)) {
+        $pdo->beginTransaction();
         $pdo->prepare("UPDATE erp_orders SET delivery_status=? WHERE order_id=?")->execute([$newDs, $orderId]);
+        if ($newDs === 'delivered') {
+            $oldStmt = $pdo->prepare("SELECT status_name FROM erp_orders WHERE order_id=?");
+            $oldStmt->execute([$orderId]);
+            $oldStatus = $oldStmt->fetchColumn();
+            if ($oldStatus !== 'delivered' && $oldStatus !== 'cancelled') {
+                $pdo->prepare("UPDATE erp_orders SET status_name='delivered' WHERE order_id=?")->execute([$orderId]);
+                if (!in_array($oldStatus, ['processed', 'shipped', 'delivered'])) {
+                    $stmt = $pdo->prepare("SELECT product_id, quantity FROM erp_order_products WHERE order_id=?");
+                    $stmt->execute([$orderId]);
+                    foreach ($stmt as $op) {
+                        $costPrice = getProductCostPrice($pdo, $op['product_id']);
+                        $pdo->prepare("INSERT INTO erp_stock_moves (product_id, type, quantity, cost_price, reference_type, reference_id, user_id, notes) VALUES (?, 'out', ?, ?, 'order', ?, ?, ?)")
+                            ->execute([$op['product_id'], $op['quantity'], $costPrice, $orderId, $user['user_id'], 'Замовлення #' . $orderId]);
+                    }
+                }
+            }
+        }
+        $pdo->commit();
         $dsLabels = ['new' => 'Нове', 'sending' => 'Відправляється', 'in_transit' => 'В дорозі', 'arrived' => 'Прибуло у відділення', 'delivered' => 'Видано одержувачу', 'returned' => 'Повернення'];
         flashMessage('success', 'Статус доставки змінено на "' . ($dsLabels[$newDs] ?? $newDs) . '"');
     } else {
@@ -434,6 +456,16 @@ if ($action === 'proforma_invoice' && $orderId) {
                     <td class="right"><?php echo formatMoney($item['total']); ?></td>
                 </tr>
                 <?php endforeach; ?>
+                <?php if ((float)$order['delivery_cost'] > 0): ?>
+                <tr>
+                    <td><?php echo $i++; ?></td>
+                    <td class="left">Доставка (Кур'єр)</td>
+                    <td>шт</td>
+                    <td>1</td>
+                    <td class="right"><?php echo formatMoney($order['delivery_cost']); ?></td>
+                    <td class="right"><?php echo formatMoney($order['delivery_cost']); ?></td>
+                </tr>
+                <?php endif; ?>
             </tbody>
         </table>
 
@@ -635,6 +667,16 @@ if ($action === 'invoice' && $orderId) {
                     <td class="right"><?php echo formatMoney($item['total']); ?></td>
                 </tr>
                 <?php endforeach; ?>
+                <?php if ((float)$order['delivery_cost'] > 0): ?>
+                <tr>
+                    <td><?php echo $i++; ?></td>
+                    <td class="left">Доставка (Кур'єр)</td>
+                    <td>шт</td>
+                    <td>1</td>
+                    <td class="right"><?php echo formatMoney($order['delivery_cost']); ?></td>
+                    <td class="right"><?php echo formatMoney($order['delivery_cost']); ?></td>
+                </tr>
+                <?php endif; ?>
             </tbody>
         </table>
 
@@ -748,6 +790,16 @@ if ($action === 'receipt' && $orderId) {
                     <td class="right"><?php echo formatMoney($item['total']); ?></td>
                 </tr>
                 <?php endforeach; ?>
+                <?php if ((float)$order['delivery_cost'] > 0): ?>
+                <tr>
+                    <td><?php echo $i++; ?></td>
+                    <td class="left">Доставка (Кур'єр)</td>
+                    <td>шт</td>
+                    <td>1</td>
+                    <td class="right"><?php echo formatMoney($order['delivery_cost']); ?></td>
+                    <td class="right"><?php echo formatMoney($order['delivery_cost']); ?></td>
+                </tr>
+                <?php endif; ?>
             </tbody>
         </table>
 
@@ -839,6 +891,7 @@ if ($action === 'create' || $action === 'edit') {
                   data-np-city-ref="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['delivery_city'], ENT_QUOTES, 'UTF-8') : ''; ?>"
                   data-np-warehouse="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['delivery_office'], ENT_QUOTES, 'UTF-8') : ''; ?>"
                   data-telephone="<?php echo $isEdit ? htmlspecialchars($order['telephone'], ENT_QUOTES, 'UTF-8') : ''; ?>"
+                  data-delivery-cost="<?php echo $isEdit ? (float)$order['delivery_cost'] : 0; ?>"
                   data-items="<?php echo htmlspecialchars(json_encode($alpineItems, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>">
                 <div class="row g-3 mb-3">
                     <div class="col-md-12">
@@ -981,11 +1034,11 @@ if ($action === 'create' || $action === 'edit') {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-3" x-show="deliveryMethod !== 'pickup'" x-cloak>
+                    <div class="col-md-3" x-show="deliveryMethod !== 'pickup' && deliveryMethod !== 'courier'" x-cloak>
                         <label class="form-label">Номер ТТН</label>
                         <input type="text" name="ttn_number" class="form-control" value="<?php echo $isEdit ? escape($order['ttn_number']) : ''; ?>" placeholder="Транспортний номер">
                     </div>
-                    <div class="col-md-3" x-show="deliveryMethod !== 'pickup'" x-cloak>
+                    <div class="col-md-3" x-show="deliveryMethod !== 'pickup' && deliveryMethod !== 'courier'" x-cloak>
                         <label class="form-label">Статус доставки</label>
                         <select name="delivery_status" class="form-select">
                             <option value="new" <?php echo $isEdit && $order['delivery_status'] === 'new' ? 'selected' : ''; ?>>Нове</option>
@@ -995,6 +1048,10 @@ if ($action === 'create' || $action === 'edit') {
                             <option value="delivered" <?php echo $isEdit && $order['delivery_status'] === 'delivered' ? 'selected' : ''; ?>>Видано одержувачу</option>
                             <option value="returned" <?php echo $isEdit && $order['delivery_status'] === 'returned' ? 'selected' : ''; ?>>Повернення</option>
                         </select>
+                    </div>
+                    <div class="col-md-3" x-show="deliveryMethod === 'courier'" x-cloak>
+                        <label class="form-label">Вартість доставки (<?php echo CURRENCY_CODE; ?>)</label>
+                        <input type="number" name="delivery_cost" class="form-control" x-model="deliveryCost" step="0.01" min="0" value="<?php echo $isEdit ? (float)$order['delivery_cost'] : 0; ?>">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Метод оплати</label>
@@ -1166,6 +1223,9 @@ if ($action === 'view' && $orderId) {
         $totalCost += (float)$item['cost_price'] * (float)$item['quantity'];
         $totalProfit += (float)$item['profit'];
     }
+    if ((float)$order['delivery_cost'] > 0) {
+        $totalProfit += (float)$order['delivery_cost'];
+    }
 
     $stmt = $pdo->prepare("SELECT * FROM erp_payments WHERE order_id = ? ORDER BY date_added ASC");
     $stmt->execute([$orderId]);
@@ -1304,7 +1364,7 @@ if ($action === 'view' && $orderId) {
                                 }
                             ?></div>
                         </div>
-                        <?php if ($order['delivery_method'] !== 'pickup'): ?>
+                        <?php if ($order['delivery_method'] !== 'pickup' && $order['delivery_method'] !== 'courier'): ?>
                         <div class="row g-3 mb-3">
                             <div class="col-md-4">
                                 <small class="text-muted">Номер ТТН</small>
@@ -1347,6 +1407,16 @@ if ($action === 'view' && $orderId) {
                                     <td class="text-end <?php echo $item['profit'] > 0 ? 'text-success' : ($item['profit'] < 0 ? 'text-danger' : ''); ?>"><?php echo formatMoney($item['profit']); ?></td>
                                 </tr>
                                 <?php endforeach; ?>
+                                <?php if ((float)$order['delivery_cost'] > 0): ?>
+                                <tr>
+                                    <td>Доставка (Кур'єр)</td>
+                                    <td class="text-center">1</td>
+                                    <td class="text-end"><?php echo formatMoney($order['delivery_cost']); ?></td>
+                                    <td class="text-end"><?php echo formatMoney($order['delivery_cost']); ?></td>
+                                    <td class="text-end">—</td>
+                                    <td class="text-end text-success"><?php echo formatMoney($order['delivery_cost']); ?></td>
+                                </tr>
+                                <?php endif; ?>
                             </tbody>
                             <tfoot>
                                 <tr class="fw-bold">

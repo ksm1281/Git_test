@@ -68,8 +68,10 @@ $topSuppliers = $stmt->fetchAll();
 
 $stmt = $pdo->prepare("SELECT COALESCE(SUM(op.profit), 0) as total_profit FROM erp_order_products op JOIN erp_orders o ON op.order_id = o.order_id WHERE o.date_added >= ? AND o.date_added <= ?");
 $stmt->execute([$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59']);
-$profitData = $stmt->fetch();
-$totalProfit = (float)$profitData['total_profit'];
+$totalProfit = (float)$stmt->fetchColumn();
+$stmt = $pdo->prepare("SELECT COALESCE(SUM(delivery_cost), 0) FROM erp_orders WHERE date_added >= ? AND date_added <= ?");
+$stmt->execute([$dateFrom . ' 00:00:00', $dateTo . ' 23:59:59']);
+$totalProfit += (float)$stmt->fetchColumn();
 
 include __DIR__ . '/../includes/header.php';
 ?>

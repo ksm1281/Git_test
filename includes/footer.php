@@ -95,6 +95,7 @@
             _npApiUrl: '',
 
             deliveryMethod: '',
+            deliveryCost: 0,
             customerQuery: '',
             customerResults: [],
             customerOpen: false,
@@ -125,6 +126,7 @@
                 this.npWarehouseQuery = d.npWarehouse || '';
                 this.npWarehouseHidden = d.npWarehouse || '';
                 this.telephone = d.telephone || '';
+                this.deliveryCost = parseFloat(d.deliveryCost) || 0;
 
                 const data = d.items;
                 this.items = data ? JSON.parse(data) : [];
@@ -138,7 +140,7 @@
             },
 
             get grandTotal() {
-                return this.items.reduce((s, i) => s + (parseFloat(i.qty) || 0) * (parseFloat(i.price) || 0), 0);
+                return this.items.reduce((s, i) => s + (parseFloat(i.qty) || 0) * (parseFloat(i.price) || 0), 0) + (parseFloat(this.deliveryCost) || 0);
             },
 
             addItem() {
