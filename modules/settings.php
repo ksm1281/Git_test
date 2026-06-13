@@ -23,6 +23,15 @@ if ($tab === 'general' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'auto_sync_enabled' => $_POST['auto_sync_enabled'] ?? '0',
         'sync_interval_minutes' => (int)($_POST['sync_interval_minutes'] ?? 60),
         'np_api_key' => trim($_POST['np_api_key'] ?? ''),
+        'supplier_name' => trim($_POST['supplier_name'] ?? ''),
+        'supplier_edrpou' => trim($_POST['supplier_edrpou'] ?? ''),
+        'supplier_phone' => trim($_POST['supplier_phone'] ?? ''),
+        'supplier_iban' => trim($_POST['supplier_iban'] ?? ''),
+        'supplier_bank' => trim($_POST['supplier_bank'] ?? ''),
+        'supplier_mfo' => trim($_POST['supplier_mfo'] ?? ''),
+        'supplier_certificate' => trim($_POST['supplier_certificate'] ?? ''),
+        'supplier_cert_date' => trim($_POST['supplier_cert_date'] ?? ''),
+        'supplier_address' => trim($_POST['supplier_address'] ?? ''),
     ];
     foreach ($settings as $key => $value) {
         $stmt = $pdo->prepare("INSERT INTO erp_settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = ?");

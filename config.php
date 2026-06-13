@@ -423,6 +423,9 @@ function initErpTables($pdo) {
     try { $pdo->exec("ALTER TABLE erp_products ADD COLUMN IF NOT EXISTS price_purchase DECIMAL(15,4) DEFAULT 0 AFTER price_retail"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_products ADD COLUMN price_purchase DECIMAL(15,4) DEFAULT 0 AFTER price_retail"); } catch (PDOException $e2) { /* ignore */ }
     }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS payment_purpose TEXT DEFAULT NULL AFTER erp_notes"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN payment_purpose TEXT DEFAULT NULL AFTER erp_notes"); } catch (PDOException $e2) { /* ignore */ }
+    }
 
     $stmt = $pdo->query("SELECT COUNT(*) FROM erp_cash_accounts");
     if ($stmt->fetchColumn() == 0) {

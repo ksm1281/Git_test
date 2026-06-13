@@ -290,6 +290,196 @@ if ($action === 'delete' && $orderId && isAdmin()) {
     redirect(BASE_URL . '/modules/orders.php');
 }
 
+if ($action === 'save_purpose' && $orderId && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $purpose = trim($_POST['purpose'] ?? '');
+    $pdo->prepare("UPDATE erp_orders SET payment_purpose=? WHERE order_id=?")->execute([$purpose, $orderId]);
+    echo json_encode(['success' => true]);
+    exit;
+}
+
+if ($action === 'proforma_invoice' && $orderId) {
+    $stmt = $pdo->prepare("SELECT * FROM erp_orders WHERE order_id = ?");
+    $stmt->execute([$orderId]);
+    $order = $stmt->fetch();
+    if (!$order) { flashMessage('error', 'Замовлення не знайдено'); redirect(BASE_URL . '/modules/orders.php'); }
+
+    $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id = ?");
+    $stmt->execute([$orderId]);
+    $items = $stmt->fetchAll();
+
+    $stmt = $pdo->prepare("SELECT `key`, `value` FROM erp_settings");
+    $stmt->execute();
+    $allSettings = [];
+    foreach ($stmt as $row) {
+        $allSettings[$row['key']] = $row['value'];
+    }
+
+    $appName = $allSettings['app_name'] ?? 'ERP/CRM';
+    $supplierName = $allSettings['supplier_name'] ?? $appName;
+    $supplierEdrpou = $allSettings['supplier_edrpou'] ?? '';
+    $supplierPhone = $allSettings['supplier_phone'] ?? '';
+    $supplierIban = $allSettings['supplier_iban'] ?? '';
+    $supplierBank = $allSettings['supplier_bank'] ?? '';
+    $supplierMfo = $allSettings['supplier_mfo'] ?? '';
+    $supplierAddress = $allSettings['supplier_address'] ?? '';
+
+    $stmt = $pdo->prepare("SELECT * FROM erp_customers WHERE customer_id = ?");
+    $stmt->execute([$order['customer_id']]);
+    $customerReqs = $stmt->fetch();
+
+    $orderDate = $order['order_date'] ? date('d.m.Y', strtotime($order['order_date'])) : date('d.m.Y');
+
+    $purpose = trim($_GET['purpose'] ?? '');
+    if (!$purpose) {
+        $purpose = trim($order['payment_purpose'] ?? '');
+    }
+    if (!$purpose) {
+        $purpose = 'оплата за товар згідно рахунку-фактури № ' . $orderId . ' від ' . $orderDate . ', без ПДВ';
+    }
+    $totalWords = num2str($order['total']);
+
+    ?><!DOCTYPE html>
+    <html lang="uk">
+    <head>
+        <meta charset="UTF-8">
+        <title>Рахунок-фактура #<?php echo $orderId; ?></title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+            body { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 11px; padding: 15px 25px; color: #000; }
+            .print-btn { margin-bottom: 15px; }
+            @media print { .print-btn { display: none; } body { padding: 0; } }
+            .header-box { border: 1px solid #000; padding: 8px; margin-bottom: 10px; font-size: 10px; }
+            .header-box td { padding: 1px 5px; vertical-align: top; }
+            .doc-title { font-size: 20px; font-weight: bold; text-align: center; margin: 15px 0 5px; }
+            .doc-sub { text-align: center; font-size: 11px; margin-bottom: 20px; }
+            table.items { width: 100%; border-collapse: collapse; margin: 10px 0; }
+            table.items th, table.items td { border: 1px solid #000; padding: 4px 6px; text-align: center; }
+            table.items th { font-weight: bold; }
+            table.items td.left { text-align: left; }
+            table.items td.right { text-align: right; }
+            .total-table { width: 100%; border-collapse: collapse; margin: 5px 0; }
+            .total-table td { padding: 3px 8px; border: 1px solid #000; }
+            .total-table td.label { text-align: right; font-weight: bold; width: 80%; }
+            .total-table td.value { text-align: right; width: 20%; }
+            .bank-details { border: 1px solid #000; padding: 8px; margin: 10px 0; font-size: 10px; }
+            .bank-details td { padding: 2px 5px; }
+            .bank-details .label { font-weight: bold; width: 30%; }
+            .purpose-box { margin: 10px 0; font-size: 10px; border: 1px solid #000; padding: 8px; }
+            .sign-line { margin-top: 30px; font-size: 10px; }
+        </style>
+    </head>
+    <?php
+        $phoneDigits = '';
+        if ($order['telephone']) {
+            $phoneDigits = preg_replace('/\D/', '', $order['telephone']);
+            if (strlen($phoneDigits) === 10 && $phoneDigits[0] === '0') $phoneDigits = '38' . $phoneDigits;
+            elseif (strlen($phoneDigits) === 9) $phoneDigits = '380' . $phoneDigits;
+            elseif (strpos($phoneDigits, '380') !== 0) $phoneDigits = '380' . $phoneDigits;
+        }
+    ?>
+    <body>
+        <button class="btn btn-primary print-btn" onclick="window.print()"><i class="bi bi-printer"></i> Друк / PDF</button>
+        <?php if ($phoneDigits): ?>
+        <a href="tg://resolve?phone=<?php echo $phoneDigits; ?>" target="_blank" class="btn btn-outline-info print-btn" title="Відправити в Telegram"><i class="bi bi-telegram"></i> Telegram</a>
+        <a href="https://wa.me/<?php echo $phoneDigits; ?>?text=Рахунок-фактура%20№<?php echo $orderId; ?>%20від%20<?php echo urlencode($orderDate); ?>" target="_blank" class="btn btn-outline-success print-btn" title="Відправити в WhatsApp"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+        <a href="viber://chat?number=<?php echo $phoneDigits; ?>" target="_blank" class="btn btn-outline-info print-btn" title="Відправити в Viber"><svg width="16" height="16" viewBox="0 0 24 24" style="vertical-align:middle;"><rect width="24" height="24" rx="4" fill="#7360F2"/><path d="M17.4 14.1c-.4-.4-.9-.6-1.4-.6s-1 .2-1.4.6l-1.1 1.1c-1.7-.9-3.1-2.1-4.1-3.7l1.1-1.1c.4-.4.6-.9.6-1.4s-.2-1-.6-1.4l-1-1c-.4-.4-.9-.6-1.4-.6s-1 .2-1.4.6L5.5 8.9c-.7.7-1 1.6-1 2.6 0 3.3 2.5 7.5 7.5 7.5 1 0 1.9-.4 2.6-1l1.1-1.1c.4-.4.6-.9.6-1.4s-.2-1-.6-1.4l-1-1z" fill="white"/></svg> Viber</a>
+        <?php endif; ?>
+        <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=view&id=<?php echo $orderId; ?>" class="btn btn-outline-secondary print-btn">Назад</a>
+
+        <div class="doc-title">РАХУНОК-ФАКТУРА</div>
+        <div class="doc-sub">№ <?php echo $orderId; ?> від «<?php echo $orderDate; ?>»</div>
+
+        <table class="header-box" style="width:100%;">
+            <tr>
+                <td style="width:50%;">
+                    <strong>Продавець:</strong><br>
+                    <?php echo escape($supplierName); ?>
+                    <?php if ($supplierEdrpou): ?>, ЄДРПОУ/ІПН <?php echo escape($supplierEdrpou); ?><?php endif; ?>
+                </td>
+                <td style="width:50%;">
+                    <strong>Покупець:</strong><br>
+                    <?php echo escape($order['customer_name']); ?><br>
+                    <?php if ($customerReqs && $customerReqs['company_name']): ?>
+                        <?php echo escape($customerReqs['company_name']); ?>
+                        <?php if ($customerReqs['edrpou']): ?>, ЄДРПОУ <?php echo escape($customerReqs['edrpou']); ?><?php endif; ?>
+                        <br>
+                    <?php endif; ?>
+                    <?php if ($customerReqs && $customerReqs['legal_address']): ?>
+                        <?php echo escape($customerReqs['legal_address']); ?><br>
+                    <?php endif; ?>
+                    тел. <?php echo escape($order['telephone'] ?: '-'); ?>
+                </td>
+            </tr>
+        </table>
+
+        <table class="items">
+            <thead>
+                <tr>
+                    <th style="width:4%;">№</th>
+                    <th style="width:38%;">Назва товару</th>
+                    <th style="width:8%;">Од.</th>
+                    <th style="width:10%;">К-сть</th>
+                    <th style="width:15%;">Ціна без ПДВ</th>
+                    <th style="width:15%;">Сума без ПДВ</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php $i = 1; foreach ($items as $item): ?>
+                <tr>
+                    <td><?php echo $i++; ?></td>
+                    <td class="left"><?php echo escape($item['product_name'] ?: $item['name']); ?></td>
+                    <td>шт</td>
+                    <td><?php echo (float)$item['quantity']; ?></td>
+                    <td class="right"><?php echo formatMoney($item['price']); ?></td>
+                    <td class="right"><?php echo formatMoney($item['total']); ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+
+        <table class="total-table">
+            <tr><td class="label">Разом:</td><td class="value"><?php echo formatMoney($order['total']); ?></td></tr>
+            <tr><td class="label">ПДВ:</td><td class="value">0.00 грн</td></tr>
+            <tr><td class="label">Всього до сплати:</td><td class="value"><?php echo formatMoney($order['total']); ?></td></tr>
+        </table>
+
+        <div style="margin:10px 0;font-weight:bold;">
+            Всього на суму: <?php echo formatMoney($order['total']); ?><br>
+            <?php echo escape($totalWords); ?>.
+        </div>
+
+        <div class="bank-details">
+            <strong>Реквізити для оплати:</strong>
+            <table style="width:100%;">
+                <tr><td class="label">Отримувач:</td><td><?php echo escape($supplierName); ?></td></tr>
+                <tr><td class="label">IBAN:</td><td><?php echo escape($supplierIban); ?></td></tr>
+                <tr><td class="label">Банк:</td><td><?php echo escape($supplierBank); ?></td></tr>
+                <tr><td class="label">МФО:</td><td><?php echo escape($supplierMfo); ?></td></tr>
+                <?php if ($supplierEdrpou): ?>
+                <tr><td class="label">ЄДРПОУ/ІПН:</td><td><?php echo escape($supplierEdrpou); ?></td></tr>
+                <?php endif; ?>
+            </table>
+        </div>
+
+        <div class="purpose-box">
+            <strong>Призначення платежу:</strong> <?php echo escape($purpose); ?>
+        </div>
+
+        <table class="sign-line" style="width:100%;">
+            <tr>
+                <td style="width:40%;">Виставив(ла): _______________</td>
+                <td style="width:40%;">Отримав(ла): _______________</td>
+                <td style="width:20%;"></td>
+            </tr>
+        </table>
+
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
 if ($action === 'invoice' && $orderId) {
     $stmt = $pdo->prepare("SELECT * FROM erp_orders WHERE order_id = ?");
     $stmt->execute([$orderId]);
@@ -991,6 +1181,9 @@ if ($action === 'view' && $orderId) {
     $deliveryStatusClasses = ['new' => 'bg-secondary', 'sending' => 'bg-info', 'in_transit' => 'bg-primary', 'arrived' => 'bg-warning text-dark', 'delivered' => 'bg-success', 'returned' => 'bg-danger'];
     $canEdit = true;
 
+    $defaultPurpose = 'оплата за товар згідно рахунку-фактури № ' . $orderId . ' від ' . ($order['order_date'] ? date('d.m.Y', strtotime($order['order_date'])) : date('d.m.Y')) . ', без ПДВ';
+    $savedPurpose = $order['payment_purpose'] ?? $defaultPurpose;
+
     include __DIR__ . '/../includes/header.php';
     ?>
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -1000,6 +1193,7 @@ if ($action === 'view' && $orderId) {
             <?php if ($canEdit): ?>
             <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=edit&id=<?php echo $orderId; ?>" class="btn btn-warning btn-sm"><i class="bi bi-pencil"></i> Редагувати</a>
             <?php endif; ?>
+            <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=proforma_invoice&id=<?php echo $orderId; ?>" class="btn btn-outline-info btn-sm" target="_blank" id="btnProformaInvoice"><i class="bi bi-receipt"></i> Рахунок</a>
             <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=invoice&id=<?php echo $orderId; ?>" class="btn btn-outline-primary btn-sm" target="_blank"><i class="bi bi-file-text"></i> Накладна</a>
             <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=receipt&id=<?php echo $orderId; ?>" class="btn btn-outline-success btn-sm" target="_blank"><i class="bi bi-printer"></i> Чек</a>
             <?php if (isAdmin()): ?>
@@ -1007,6 +1201,37 @@ if ($action === 'view' && $orderId) {
             <?php endif; ?>
         </div>
     </div>
+    <div class="mb-3" x-data="paymentPurpose(<?php echo $orderId; ?>, '<?php echo escape($savedPurpose); ?>')">
+        <div class="input-group input-group-sm" style="max-width:600px;">
+            <span class="input-group-text">Призначення платежу</span>
+            <input type="text" class="form-control" x-model="purpose" @input.debounce.500ms="save()">
+            <button class="btn btn-outline-success" @click="save()" x-text="saved ? 'Збережено' : 'Зберегти'" :disabled="saving"></button>
+        </div>
+    </div>
+    <script>
+    function paymentPurpose(orderId, defaultPurpose) {
+        return {
+            purpose: defaultPurpose,
+            saved: false,
+            saving: false,
+            save() {
+                this.saving = true;
+                fetch('<?php echo BASE_URL; ?>/modules/orders.php?action=save_purpose&id=' + orderId, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'purpose=' + encodeURIComponent(this.purpose)
+                })
+                .then(r => r.json())
+                .then(data => {
+                    this.saved = true;
+                    this.saving = false;
+                    setTimeout(() => { this.saved = false; }, 2000);
+                })
+                .catch(() => { this.saving = false; });
+            }
+        }
+    }
+    </script>
     <div class="row g-3">
         <div class="col-md-8">
             <div class="card">
@@ -1038,6 +1263,7 @@ if ($action === 'view' && $orderId) {
                                     elseif (strpos($digits, '380') !== 0) $digits = '380' . $digits;
                                     echo escape($phone);
                                     echo ' <a href="tg://resolve?phone=' . $digits . '" target="_blank" class="text-decoration-none" title="Telegram"><i class="bi bi-telegram" style="color:#0088cc;vertical-align:middle;"></i></a>';
+                                    echo ' <a href="https://wa.me/' . $digits . '" target="_blank" class="text-decoration-none" title="WhatsApp"><i class="bi bi-whatsapp" style="color:#25D366;vertical-align:middle;"></i></a>';
                                     echo ' <a href="viber://chat?number=' . $digits . '" target="_blank" class="text-decoration-none" title="Viber"><svg width="16" height="16" viewBox="0 0 24 24" style="vertical-align:middle;"><rect width="24" height="24" rx="4" fill="#7360F2"/><path d="M17.4 14.1c-.4-.4-.9-.6-1.4-.6s-1 .2-1.4.6l-1.1 1.1c-1.7-.9-3.1-2.1-4.1-3.7l1.1-1.1c.4-.4.6-.9.6-1.4s-.2-1-.6-1.4l-1-1c-.4-.4-.9-.6-1.4-.6s-1 .2-1.4.6L5.5 8.9c-.7.7-1 1.6-1 2.6 0 3.3 2.5 7.5 7.5 7.5 1 0 1.9-.4 2.6-1l1.1-1.1c.4-.4.6-.9.6-1.4s-.2-1-.6-1.4l-1-1z" fill="white"/></svg></a>';
                                 else:
                                     echo '-';
