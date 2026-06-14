@@ -108,6 +108,7 @@
 
             npWarehouseQuery: '',
             npWarehouseHidden: '',
+            npWarehouseRef: '',
             npWarehouseResults: [],
             npWarehouseOpen: false,
 
@@ -125,6 +126,7 @@
                 this.npCityRef = d.npCityRef || '';
                 this.npWarehouseQuery = d.npWarehouse || '';
                 this.npWarehouseHidden = d.npWarehouse || '';
+                this.npWarehouseRef = d.npWarehouseRef || '';
                 this.telephone = d.telephone || '';
                 this.deliveryCost = parseFloat(d.deliveryCost) || 0;
 
@@ -301,11 +303,12 @@
                 }
             },
 
-            selectNpWarehouse(wh) {
-                this.npWarehouseQuery = wh.name;
-                this.npWarehouseHidden = wh.name;
-                this.npWarehouseOpen = false;
-            },
+                selectNpWarehouse(wh) {
+                    this.npWarehouseQuery = wh.name;
+                    this.npWarehouseHidden = wh.name;
+                    this.npWarehouseRef = wh.ref || '';
+                    this.npWarehouseOpen = false;
+                },
 
             closeNpWarehouse() {
                 setTimeout(() => { this.npWarehouseOpen = false; }, 200);

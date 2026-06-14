@@ -62,7 +62,11 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($deliveryMethod === 'nova_poshta') {
         $deliveryCity = trim($_POST['np_city'] ?? '');
         $deliveryOffice = trim($_POST['np_warehouse'] ?? '');
+        $npCityRef = trim($_POST['np_city_ref'] ?? '');
+        $npWarehouseRef = trim($_POST['np_warehouse_ref'] ?? '');
     } else {
+        $npCityRef = '';
+        $npWarehouseRef = '';
         $deliveryCity = trim($_POST['delivery_city'] ?? '');
         $deliveryOffice = trim($_POST['delivery_office'] ?? '');
     }
@@ -79,6 +83,7 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $payAmount = (float)($_POST['pay_amount'] ?? 0);
     $payMethod = $_POST['pay_method'] ?? 'cash';
     $payDate = $_POST['pay_date'] ?? date('Y-m-d');
+    $payAccountId = (int)($_POST['pay_account_id'] ?? 0);
 
     $productIds = $_POST['product_id'] ?? [];
     $quantities = $_POST['quantity'] ?? [];
@@ -92,8 +97,8 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $pdo->beginTransaction();
     try {
         if ($orderId) {
-            $stmt = $pdo->prepare("UPDATE erp_orders SET customer_name=?, email=?, telephone=?, status_name=?, erp_notes=?, payment_method=?, delivery_method=?, delivery_address=?, delivery_city=?, delivery_street=?, delivery_building=?, delivery_apartment=?, delivery_office=?, ttn_number=?, delivery_status=?, delivery_cost=?, order_date=? WHERE order_id=?");
-            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $ttnNumber, $deliveryStatus, $deliveryCost, $orderDate, $orderId]);
+            $stmt = $pdo->prepare("UPDATE erp_orders SET customer_name=?, email=?, telephone=?, status_name=?, erp_notes=?, payment_method=?, delivery_method=?, delivery_address=?, delivery_city=?, delivery_street=?, delivery_building=?, delivery_apartment=?, delivery_office=?, np_city_ref=?, np_warehouse_ref=?, ttn_number=?, delivery_status=?, delivery_cost=?, order_date=? WHERE order_id=?");
+            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $npCityRef, $npWarehouseRef, $ttnNumber, $deliveryStatus, $deliveryCost, $orderDate, $orderId]);
 
             $oldProducts = $pdo->prepare("SELECT product_id, quantity FROM erp_order_products WHERE order_id=?");
             $oldProducts->execute([$orderId]);
@@ -103,8 +108,8 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $pdo->prepare("DELETE FROM erp_order_products WHERE order_id=?")->execute([$orderId]);
         } else {
-            $stmt = $pdo->prepare("INSERT INTO erp_orders (customer_name, email, telephone, status_name, total, erp_notes, payment_method, delivery_method, delivery_address, delivery_city, delivery_street, delivery_building, delivery_apartment, delivery_office, ttn_number, delivery_status, delivery_cost, order_date) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $ttnNumber, $deliveryStatus, $deliveryCost, $orderDate]);
+            $stmt = $pdo->prepare("INSERT INTO erp_orders (customer_name, email, telephone, status_name, total, erp_notes, payment_method, delivery_method, delivery_address, delivery_city, delivery_street, delivery_building, delivery_apartment, delivery_office, np_city_ref, np_warehouse_ref, ttn_number, delivery_status, delivery_cost, order_date) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$customerName, $email, $telephone, $statusName, $notes, $paymentMethod, $deliveryMethod, $deliveryAddress, $deliveryCity, $deliveryStreet, $deliveryBuilding, $deliveryApartment, $deliveryOffice, $npCityRef, $npWarehouseRef, $ttnNumber, $deliveryStatus, $deliveryCost, $orderDate]);
             $orderId = (int)$pdo->lastInsertId();
         }
 
@@ -164,6 +169,11 @@ if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($payAmount > 0) {
             $stmt = $pdo->prepare("INSERT INTO erp_payments (order_id, amount, method, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([$orderId, $payAmount, $payMethod, $payDate, 'Оплата замовлення #' . $orderId, $user['user_id']]);
+
+            if ($payAccountId > 0) {
+                $stmt = $pdo->prepare("INSERT INTO erp_transactions (account_id, type, amount, method, category, date, description, reference_type, reference_id, user_id) VALUES (?, 'in', ?, ?, 'Продажі', ?, ?, 'order', ?, ?)");
+                $stmt->execute([$payAccountId, $payAmount, $payMethod, $payDate, 'Оплата замовлення #' . $orderId, $orderId, $user['user_id']]);
+            }
         }
 
         $pdo->commit();
@@ -219,10 +229,17 @@ if ($action === 'pay' && $_SERVER['REQUEST_METHOD'] === 'POST' && $orderId && is
     $method = $_POST['method'] ?? 'cash';
     $date = $_POST['date'] ?? date('Y-m-d');
     $notes = trim($_POST['notes'] ?? '');
+    $accountId = (int)($_POST['account_id'] ?? 0);
 
     if ($amount > 0) {
         $stmt = $pdo->prepare("INSERT INTO erp_payments (order_id, amount, method, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([$orderId, $amount, $method, $date, $notes, $user['user_id']]);
+
+        if ($accountId > 0) {
+            $stmt = $pdo->prepare("INSERT INTO erp_transactions (account_id, type, amount, method, category, date, description, reference_type, reference_id, user_id) VALUES (?, 'in', ?, ?, 'Продажі', ?, ?, 'order', ?, ?)");
+            $stmt->execute([$accountId, $amount, $method, $date, 'Оплата замовлення #' . $orderId, $orderId, $user['user_id']]);
+        }
+
         flashMessage('success', 'Платіж на ' . formatMoney($amount) . ' зареєстровано');
     } else {
         flashMessage('error', 'Некоректна сума');
@@ -271,9 +288,10 @@ if ($action === 'delivery_status' && $orderId && isManager()) {
         $pdo->beginTransaction();
         $pdo->prepare("UPDATE erp_orders SET delivery_status=? WHERE order_id=?")->execute([$newDs, $orderId]);
         if ($newDs === 'delivered') {
-            $oldStmt = $pdo->prepare("SELECT status_name FROM erp_orders WHERE order_id=?");
+            $oldStmt = $pdo->prepare("SELECT status_name, payment_method FROM erp_orders WHERE order_id=?");
             $oldStmt->execute([$orderId]);
-            $oldStatus = $oldStmt->fetchColumn();
+            $row = $oldStmt->fetch();
+            $oldStatus = $row['status_name'];
             if ($oldStatus !== 'delivered' && $oldStatus !== 'cancelled') {
                 $pdo->prepare("UPDATE erp_orders SET status_name='delivered' WHERE order_id=?")->execute([$orderId]);
                 if (!in_array($oldStatus, ['processed', 'shipped', 'delivered'])) {
@@ -286,6 +304,9 @@ if ($action === 'delivery_status' && $orderId && isManager()) {
                     }
                 }
             }
+            if ($row['payment_method'] === 'nova_poshta') {
+                autoRegisterNpPayment($pdo, $orderId);
+            }
         }
         $pdo->commit();
         $dsLabels = ['new' => 'Нове', 'sending' => 'Відправляється', 'in_transit' => 'В дорозі', 'arrived' => 'Прибуло у відділення', 'delivered' => 'Видано одержувачу', 'returned' => 'Повернення'];
@@ -296,10 +317,23 @@ if ($action === 'delivery_status' && $orderId && isManager()) {
     redirect(BASE_URL . '/modules/orders.php?action=view&id=' . $orderId);
 }
 
+if ($action === 'save_ttn' && $_SERVER['REQUEST_METHOD'] === 'POST' && $orderId && isManager()) {
+    header('Content-Type: application/json');
+    $ttn = trim($_POST['ttn_number'] ?? '');
+    if (!$ttn) {
+        echo json_encode(['error' => 'Введіть номер ТТН']);
+        exit;
+    }
+    $pdo->prepare("UPDATE erp_orders SET ttn_number = ? WHERE order_id = ?")->execute([$ttn, $orderId]);
+    echo json_encode(['success' => true, 'message' => 'ТТН ' . $ttn . ' збережено']);
+    exit;
+}
+
 if ($action === 'delete' && $orderId && isAdmin()) {
     $pdo->beginTransaction();
     try {
         $pdo->prepare("DELETE FROM erp_stock_moves WHERE reference_type='order' AND reference_id=?")->execute([$orderId]);
+        $pdo->prepare("DELETE FROM erp_transactions WHERE reference_type='order' AND reference_id=?")->execute([$orderId]);
         $pdo->prepare("DELETE FROM erp_payments WHERE order_id=?")->execute([$orderId]);
         $pdo->prepare("DELETE FROM erp_order_products WHERE order_id=?")->execute([$orderId]);
         $pdo->prepare("DELETE FROM erp_orders WHERE order_id=?")->execute([$orderId]);
@@ -835,6 +869,7 @@ if ($action === 'create' || $action === 'edit') {
     $isEdit = ($action === 'edit' && $orderId);
     $order = [];
     $items = [];
+    $accounts = $pdo->query("SELECT * FROM erp_cash_accounts WHERE status = 1 ORDER BY name ASC")->fetchAll();
 
     if ($isEdit) {
         $stmt = $pdo->prepare("SELECT * FROM erp_orders WHERE order_id=?");
@@ -888,8 +923,9 @@ if ($action === 'create' || $action === 'edit') {
                   data-delivery-method="<?php echo $isEdit ? htmlspecialchars($order['delivery_method'], ENT_QUOTES, 'UTF-8') : ''; ?>"
                   data-customer-name="<?php echo $isEdit ? htmlspecialchars($order['customer_name'], ENT_QUOTES, 'UTF-8') : ''; ?>"
                   data-np-city="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['delivery_city'], ENT_QUOTES, 'UTF-8') : ''; ?>"
-                  data-np-city-ref="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['delivery_city'], ENT_QUOTES, 'UTF-8') : ''; ?>"
+                  data-np-city-ref="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['np_city_ref'] ?? '', ENT_QUOTES, 'UTF-8') : ''; ?>"
                   data-np-warehouse="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['delivery_office'], ENT_QUOTES, 'UTF-8') : ''; ?>"
+                  data-np-warehouse-ref="<?php echo $isEdit && $order['delivery_method'] === 'nova_poshta' ? htmlspecialchars($order['np_warehouse_ref'] ?? '', ENT_QUOTES, 'UTF-8') : ''; ?>"
                   data-telephone="<?php echo $isEdit ? htmlspecialchars($order['telephone'], ENT_QUOTES, 'UTF-8') : ''; ?>"
                   data-delivery-cost="<?php echo $isEdit ? (float)$order['delivery_cost'] : 0; ?>"
                   data-items="<?php echo htmlspecialchars(json_encode($alpineItems, JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8'); ?>">
@@ -982,6 +1018,7 @@ if ($action === 'create' || $action === 'edit') {
                                    @keydown.escape="npCityOpen = false"
                                    @blur="closeNpCity()">
                             <input type="hidden" name="np_city" x-model="npCityHidden">
+                            <input type="hidden" name="np_city_ref" x-model="npCityRef">
                             <div x-show="npCityOpen" x-cloak
                                  style="position:absolute;top:100%;left:0;right:0;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;">
                                 <template x-for="c in npCityResults" :key="c.ref || '_err'">
@@ -1005,6 +1042,7 @@ if ($action === 'create' || $action === 'edit') {
                                    @keydown.escape="npWarehouseOpen = false"
                                    @blur="closeNpWarehouse()">
                             <input type="hidden" name="np_warehouse" x-model="npWarehouseHidden">
+                            <input type="hidden" name="np_warehouse_ref" x-model="npWarehouseRef">
                             <div x-show="npWarehouseOpen" x-cloak
                                  style="position:absolute;top:100%;left:0;right:0;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;">
                                 <template x-for="w in npWarehouseResults" :key="w.name || '_err'">
@@ -1176,6 +1214,15 @@ if ($action === 'create' || $action === 'edit') {
                                 <label class="form-label">Дата</label>
                                 <input type="date" name="pay_date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
                             </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Рахунок (каса/банк)</label>
+                                <select name="pay_account_id" class="form-select">
+                                    <option value="">— Без рахунку —</option>
+                                    <?php foreach ($accounts as $acc): ?>
+                                    <option value="<?php echo $acc['account_id']; ?>"><?php echo escape($acc['name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1234,6 +1281,7 @@ if ($action === 'view' && $orderId) {
     foreach ($payments as $pmt) { $totalPaid += (float)$pmt['amount']; }
     $balance = (float)$order['total'] - $totalPaid;
     $methodLabels = ['cash' => 'Готівка', 'card' => 'Картка', 'fop' => 'ФОП', 'invoice' => 'Рахунок', 'transfer' => 'Переказ', 'nova_poshta' => 'Нова Пошта (зворотня доставка)'];
+    $accounts = $pdo->query("SELECT * FROM erp_cash_accounts WHERE status = 1 ORDER BY name ASC")->fetchAll();
 
     $statusOptions = ['pending' => 'Очікує', 'approved' => 'Підтверджено', 'processed' => 'В обробці', 'shipped' => 'Відправлено', 'delivered' => 'Доставлено', 'cancelled' => 'Скасовано'];
     $statusClasses = ['pending' => 'bg-warning text-dark', 'approved' => 'bg-info', 'processed' => 'bg-primary', 'shipped' => 'bg-secondary', 'delivered' => 'bg-success', 'cancelled' => 'bg-danger'];
@@ -1368,7 +1416,25 @@ if ($action === 'view' && $orderId) {
                         <div class="row g-3 mb-3">
                             <div class="col-md-4">
                                 <small class="text-muted">Номер ТТН</small>
-                                <div class="fw-bold"><?php echo $order['ttn_number'] ? escape($order['ttn_number']) : '-'; ?></div>
+                                <div class="fw-bold">
+                                    <?php if ($order['ttn_number']): ?>
+                                        <?php echo escape($order['ttn_number']); ?>
+                                    <?php else: ?>
+                                        <span class="text-muted">—</span>
+                                    <?php endif; ?>
+                                </div>
+                                <?php if (isManager()): ?>
+                                <div class="mt-1 d-flex gap-1 flex-wrap">
+                                    <?php if ($order['delivery_method'] === 'nova_poshta' && !$order['ttn_number']): ?>
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#createTtnModal">
+                                        <i class="bi bi-file-earmark-plus"></i> Створити ТТН
+                                    </button>
+                                    <?php endif; ?>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editTtnModal">
+                                        <i class="bi bi-pencil"></i> <?php echo $order['ttn_number'] ? 'Змінити' : 'Ввести вручну'; ?>
+                                    </button>
+                                </div>
+                                <?php endif; ?>
                             </div>
                             <div class="col-md-4">
                                 <small class="text-muted">Статус доставки</small>
@@ -1443,6 +1509,18 @@ if ($action === 'view' && $orderId) {
                     </div>
                 </div>
             </div>
+            <div class="card mt-2">
+                <div class="card-header">Статус доставки</div>
+                <div class="card-body">
+                    <div class="d-flex gap-2 flex-wrap">
+                        <?php foreach (['sending', 'in_transit', 'arrived', 'delivered', 'returned'] as $ds): ?>
+                        <?php if ($ds !== ($order['delivery_status'] ?: 'new')): ?>
+                        <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=delivery_status&id=<?php echo $orderId; ?>&ds=<?php echo $ds; ?>" class="btn btn-sm btn-outline-<?php echo $ds === 'returned' ? 'danger' : ($ds === 'delivered' ? 'success' : 'secondary'); ?>" onclick="return confirm('Змінити статус доставки на \"<?php echo $deliveryStatusOptions[$ds]; ?>\"?')"><?php echo $deliveryStatusOptions[$ds]; ?></a>
+                        <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
             <?php endif; ?>
         </div>
         <div class="col-md-4">
@@ -1494,12 +1572,148 @@ if ($action === 'view' && $orderId) {
                         <div class="col-6">
                             <button type="submit" class="btn btn-success btn-sm w-100"><i class="bi bi-cash"></i> Додати платіж</button>
                         </div>
+                        <div class="col-12">
+                            <select name="account_id" class="form-select form-select-sm">
+                                <option value="">— Без рахунку —</option>
+                                <?php foreach ($accounts as $acc): ?>
+                                <option value="<?php echo $acc['account_id']; ?>"><?php echo escape($acc['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
                     </form>
                 </div>
                 <?php endif; ?>
             </div>
         </div>
     </div>
+    <?php if ($order['delivery_method'] === 'nova_poshta'): ?>
+    <!-- Create TTN Modal -->
+    <div class="modal fade" id="createTtnModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" action="<?php echo BASE_URL; ?>/api/np-create-ttn.php" id="createTtnForm" onsubmit="return submitCreateTtn(this)">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Створення ТТН Нової Пошти</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" name="order_id" value="<?php echo $orderId; ?>">
+                        <div class="mb-3">
+                            <label class="form-label">Вага (кг) *</label>
+                            <input type="number" name="weight" class="form-control" step="0.1" min="0.1" value="1" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Кількість місць</label>
+                            <input type="number" name="seats" class="form-control" min="1" value="1">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Одержувач</label>
+                            <p class="form-control-plaintext"><?php echo escape($order['customer_name'] ?: '-'); ?></p>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Телефон</label>
+                            <p class="form-control-plaintext"><?php echo escape($order['telephone'] ?: '-'); ?></p>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Місто / Відділення</label>
+                            <p class="form-control-plaintext"><?php echo escape($order['delivery_city'] ?: '') . ($order['delivery_office'] ? ', ' . escape($order['delivery_office']) : ''); ?></p>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Сума COD</label>
+                            <p class="form-control-plaintext fw-bold"><?php echo formatMoney($order['total']); ?></p>
+                        </div>
+                        <div id="createTtnResult" class="alert d-none mb-0"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                        <button type="submit" class="btn btn-primary" id="createTtnSubmit"><i class="bi bi-file-earmark-plus"></i> Створити ТТН</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- Edit TTN Modal -->
+    <div class="modal fade" id="editTtnModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" action="?action=save_ttn&id=<?php echo $orderId; ?>" id="editTtnForm" onsubmit="return submitEditTtn(this)">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><?php echo $order['ttn_number'] ? 'Змінити' : 'Ввести'; ?> номер ТТН</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Номер ТТН</label>
+                            <input type="text" name="ttn_number" class="form-control" value="<?php echo escape($order['ttn_number'] ?? ''); ?>" placeholder="2045XXXXXXXXX" required>
+                        </div>
+                        <div id="editTtnResult" class="alert d-none mb-0"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Зберегти</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function submitCreateTtn(form) {
+        const btn = document.getElementById('createTtnSubmit');
+        const result = document.getElementById('createTtnResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Створення...';
+        result.classList.add('d-none');
+        fetch(form.action, { method: 'POST', body: new FormData(form) })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    result.className = 'alert alert-danger mb-0';
+                    result.textContent = data.error;
+                } else {
+                    result.className = 'alert alert-success mb-0';
+                    result.textContent = data.message;
+                    setTimeout(() => location.reload(), 1500);
+                }
+            })
+            .catch(function() {
+                result.className = 'alert alert-danger mb-0';
+                result.textContent = 'Помилка з\'єднання';
+            })
+            .finally(function() {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-file-earmark-plus"></i> Створити ТТН';
+                result.classList.remove('d-none');
+            });
+        return false;
+    }
+    function submitEditTtn(form) {
+        const result = document.getElementById('editTtnResult');
+        result.classList.add('d-none');
+        fetch(form.action, { method: 'POST', body: new FormData(form) })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    result.className = 'alert alert-danger mb-0';
+                    result.textContent = data.error;
+                } else {
+                    result.className = 'alert alert-success mb-0';
+                    result.textContent = data.message;
+                    setTimeout(() => location.reload(), 1000);
+                }
+            })
+            .catch(function() {
+                result.className = 'alert alert-danger mb-0';
+                result.textContent = 'Помилка з\'єднання';
+            })
+            .finally(function() {
+                result.classList.remove('d-none');
+            });
+        return false;
+    }
+    </script>
     <?php
     include __DIR__ . '/../includes/footer.php';
     exit;

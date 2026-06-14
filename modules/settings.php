@@ -23,6 +23,10 @@ if ($tab === 'general' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         'auto_sync_enabled' => $_POST['auto_sync_enabled'] ?? '0',
         'sync_interval_minutes' => (int)($_POST['sync_interval_minutes'] ?? 60),
         'np_api_key' => trim($_POST['np_api_key'] ?? ''),
+        'np_payment_account_id' => (int)($_POST['np_payment_account_id'] ?? 0),
+        'np_sender_city_ref' => trim($_POST['np_sender_city_ref'] ?? ''),
+        'np_sender_warehouse_ref' => trim($_POST['np_sender_warehouse_ref'] ?? ''),
+        'np_sender_phone' => trim($_POST['np_sender_phone'] ?? ''),
         'supplier_name' => trim($_POST['supplier_name'] ?? ''),
         'supplier_edrpou' => trim($_POST['supplier_edrpou'] ?? ''),
         'supplier_phone' => trim($_POST['supplier_phone'] ?? ''),
@@ -374,6 +378,34 @@ include __DIR__ . '/../includes/header.php';
                     <input type="text" name="np_api_key" class="form-control font-monospace" value="<?php echo escape($settings['np_api_key'] ?? ''); ?>" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
                     <div class="form-text">Отримайте у <a href="https://my.novaposhta.ua/settings/index#api" target="_blank">кабінеті НП → API</a></div>
                 </div>
+                <div class="col-md-6">
+                    <label class="form-label">Рахунок для зарахування коштів НП (зворотня доставка)</label>
+                    <select name="np_payment_account_id" class="form-select">
+                        <option value="">— Виберіть рахунок —</option>
+                        <?php foreach ($accounts as $acc): ?>
+                        <option value="<?php echo $acc['account_id']; ?>" <?php echo (int)($settings['np_payment_account_id'] ?? 0) === (int)$acc['account_id'] ? 'selected' : ''; ?>><?php echo escape($acc['name']); ?> (<?php echo $acc['type']; ?>)</option>
+                        <?php endforeach; ?>
+                    </select>
+                    <div class="form-text">Автоматичне зарахування оплати при доставці через NP</div>
+                </div>
+            </div>
+            <h6 class="fw-bold mb-2 mt-3">Відправник (для створення ТТН через API)</h6>
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">Ref міста відправника</label>
+                    <input type="text" name="np_sender_city_ref" class="form-control font-monospace" value="<?php echo escape($settings['np_sender_city_ref'] ?? ''); ?>" placeholder="UUID міста (напр. 8d5a980d-391c-11dd-90d9-001a92567626)">
+                    <div class="form-text">Отримайте через <code>?action=cities</code></div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Ref відділення відправника</label>
+                    <input type="text" name="np_sender_warehouse_ref" class="form-control font-monospace" value="<?php echo escape($settings['np_sender_warehouse_ref'] ?? ''); ?>" placeholder="UUID відділення">
+                    <div class="form-text">Отримайте через <code>?action=warehouses&city_ref=...</code></div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Телефон відправника</label>
+                    <input type="text" name="np_sender_phone" class="form-control" value="<?php echo escape($settings['np_sender_phone'] ?? ''); ?>" placeholder="380501234567">
+                </div>
+            </div>
             </div>
 
             <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Зберегти</button>

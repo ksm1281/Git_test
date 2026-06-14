@@ -414,8 +414,14 @@ function initErpTables($pdo) {
     try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_office VARCHAR(255) DEFAULT NULL AFTER delivery_apartment"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_office VARCHAR(255) DEFAULT NULL AFTER delivery_apartment"); } catch (PDOException $e2) { /* ignore */ }
     }
-    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS ttn_number VARCHAR(64) DEFAULT NULL AFTER delivery_office"); } catch (PDOException $e) {
-        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN ttn_number VARCHAR(64) DEFAULT NULL AFTER delivery_office"); } catch (PDOException $e2) { /* ignore */ }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS np_city_ref VARCHAR(64) DEFAULT NULL AFTER delivery_office"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN np_city_ref VARCHAR(64) DEFAULT NULL AFTER delivery_office"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS np_warehouse_ref VARCHAR(64) DEFAULT NULL AFTER np_city_ref"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN np_warehouse_ref VARCHAR(64) DEFAULT NULL AFTER np_city_ref"); } catch (PDOException $e2) { /* ignore */ }
+    }
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS ttn_number VARCHAR(64) DEFAULT NULL AFTER np_warehouse_ref"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN ttn_number VARCHAR(64) DEFAULT NULL AFTER np_warehouse_ref"); } catch (PDOException $e2) { /* ignore */ }
     }
     try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(32) DEFAULT 'new' AFTER ttn_number"); } catch (PDOException $e) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_status VARCHAR(32) DEFAULT 'new' AFTER ttn_number"); } catch (PDOException $e2) { /* ignore */ }
@@ -962,6 +968,36 @@ function num2str($num) {
         $words .= ' ' . $kopiyky . ' ' . $pluralForm($kopiyky, $kopiykyForms);
     }
     return $words;
+}
+
+if (!function_exists('autoRegisterNpPayment')) {
+function autoRegisterNpPayment($pdo, $orderId, $date = null, $amount = null) {
+    $stmt = $pdo->prepare("SELECT payment_method, total FROM erp_orders WHERE order_id = ?");
+    $stmt->execute([$orderId]);
+    $order = $stmt->fetch();
+    if (!$order || $order['payment_method'] !== 'nova_poshta') return false;
+
+    $check = $pdo->prepare("SELECT payment_id FROM erp_payments WHERE order_id = ? AND method = 'nova_poshta'");
+    $check->execute([$orderId]);
+    if ($check->fetch()) return false;
+
+    $stmt = $pdo->prepare("SELECT `value` FROM erp_settings WHERE `key` = 'np_payment_account_id'");
+    $stmt->execute();
+    $accountId = (int)$stmt->fetchColumn();
+
+    if (!$date) $date = date('Y-m-d');
+    if ($amount === null) $amount = (float)$order['total'];
+
+    $pdo->prepare("INSERT INTO erp_payments (order_id, amount, method, date, notes, user_id) VALUES (?, ?, 'nova_poshta', ?, ?, 1)")
+        ->execute([$orderId, $amount, $date, 'Автоматична оплата через Нову Пошту (зворотня доставка)']);
+
+    if ($accountId > 0) {
+        $pdo->prepare("INSERT INTO erp_transactions (account_id, type, amount, method, category, date, description, reference_type, reference_id, user_id) VALUES (?, 'in', ?, 'nova_poshta', 'Продажі', ?, ?, 'order', ?, 1)")
+            ->execute([$accountId, $amount, $date, 'Автоматична оплата через Нову Пошту, замовлення #' . $orderId, $orderId]);
+    }
+
+    return true;
+}
 }
 
 if (!function_exists('getCategories')) {

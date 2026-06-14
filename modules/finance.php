@@ -48,10 +48,22 @@ if ($action === 'create_payment' && $_SERVER['REQUEST_METHOD'] === 'POST' && isM
     $method = $_POST['method'] ?? 'cash';
     $date = $_POST['date'] ?? date('Y-m-d');
     $notes = trim($_POST['notes'] ?? '');
+    $accountId = (int)($_POST['account_id'] ?? 0);
 
     if ($amount > 0) {
         $stmt = $pdo->prepare("INSERT INTO erp_payments (invoice_id, order_id, amount, method, date, notes, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$invoiceId ?: null, $orderId ?: null, $amount, $method, $date, $notes, $user['user_id']]);
+
+        if ($accountId > 0) {
+            if ($pType === 'customer') {
+                $stmt = $pdo->prepare("INSERT INTO erp_transactions (account_id, type, amount, method, category, date, description, reference_type, reference_id, user_id) VALUES (?, 'in', ?, ?, 'Продажі', ?, ?, 'order', ?, ?)");
+                $stmt->execute([$accountId, $amount, $method, $date, $notes ?: 'Оплата замовлення', $orderId ?: null, $user['user_id']]);
+            } else {
+                $stmt = $pdo->prepare("INSERT INTO erp_transactions (account_id, type, amount, method, category, date, description, reference_type, reference_id, user_id) VALUES (?, 'out', ?, ?, 'Закупівля', ?, ?, 'invoice', ?, ?)");
+                $stmt->execute([$accountId, $amount, $method, $date, $notes ?: 'Оплата накладної', $invoiceId ?: null, $user['user_id']]);
+            }
+        }
+
         flashMessage('success', 'Платіж додано');
     } else {
         flashMessage('error', 'Заповніть обов\'язкові поля');
@@ -724,6 +736,15 @@ include __DIR__ . '/../includes/header.php';
                     <div class="mb-3">
                         <label class="form-label">Дата</label>
                         <input type="date" name="date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Рахунок (каса/банк)</label>
+                        <select name="account_id" class="form-select">
+                            <option value="">— Без рахунку —</option>
+                            <?php foreach ($accounts as $acc): ?>
+                            <option value="<?php echo $acc['account_id']; ?>"><?php echo escape($acc['name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Примітка</label>
