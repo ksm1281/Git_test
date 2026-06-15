@@ -1080,6 +1080,7 @@ if ($action === 'create' || $action === 'edit') {
                         <label class="form-label">Статус доставки</label>
                         <select name="delivery_status" class="form-select">
                             <option value="new" <?php echo $isEdit && $order['delivery_status'] === 'new' ? 'selected' : ''; ?>>Нове</option>
+                            <option value="awaiting" <?php echo $isEdit && $order['delivery_status'] === 'awaiting' ? 'selected' : ''; ?>>Очікує</option>
                             <option value="sending" <?php echo $isEdit && $order['delivery_status'] === 'sending' ? 'selected' : ''; ?>>Відправляється</option>
                             <option value="in_transit" <?php echo $isEdit && $order['delivery_status'] === 'in_transit' ? 'selected' : ''; ?>>В дорозі</option>
                             <option value="arrived" <?php echo $isEdit && $order['delivery_status'] === 'arrived' ? 'selected' : ''; ?>>Прибуло у відділення</option>
@@ -1264,6 +1265,17 @@ if ($action === 'view' && $orderId) {
     $stmt = $pdo->prepare("SELECT op.*, p.name as product_name FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id = ?");
     $stmt->execute([$orderId]);
     $items = $stmt->fetchAll();
+
+    $ttnDescription = '';
+    foreach ($items as $i) {
+        $name = $i['product_name'] ?: 'Товар';
+        $qty = number_format((float)$i['quantity'], 0);
+        $ttnDescription .= ($ttnDescription ? ', ' : '') . "$name ($qty)";
+    }
+    if (mb_strlen($ttnDescription) > 90) {
+        $ttnDescription = mb_substr($ttnDescription, 0, 90) . '...';
+    }
+
     $totalCost = 0;
     $totalProfit = 0;
     foreach ($items as $item) {
@@ -1285,8 +1297,8 @@ if ($action === 'view' && $orderId) {
 
     $statusOptions = ['pending' => 'Очікує', 'approved' => 'Підтверджено', 'processed' => 'В обробці', 'shipped' => 'Відправлено', 'delivered' => 'Доставлено', 'cancelled' => 'Скасовано'];
     $statusClasses = ['pending' => 'bg-warning text-dark', 'approved' => 'bg-info', 'processed' => 'bg-primary', 'shipped' => 'bg-secondary', 'delivered' => 'bg-success', 'cancelled' => 'bg-danger'];
-    $deliveryStatusOptions = ['new' => 'Нове', 'sending' => 'Відправляється', 'in_transit' => 'В дорозі', 'arrived' => 'Прибуло у відділення', 'delivered' => 'Видано одержувачу', 'returned' => 'Повернення'];
-    $deliveryStatusClasses = ['new' => 'bg-secondary', 'sending' => 'bg-info', 'in_transit' => 'bg-primary', 'arrived' => 'bg-warning text-dark', 'delivered' => 'bg-success', 'returned' => 'bg-danger'];
+    $deliveryStatusOptions = ['new' => 'Нове', 'awaiting' => 'Очікує', 'sending' => 'Відправляється', 'in_transit' => 'В дорозі', 'arrived' => 'Прибуло у відділення', 'delivered' => 'Видано одержувачу', 'returned' => 'Повернення'];
+    $deliveryStatusClasses = ['new' => 'bg-secondary', 'awaiting' => 'bg-secondary', 'sending' => 'bg-info', 'in_transit' => 'bg-primary', 'arrived' => 'bg-warning text-dark', 'delivered' => 'bg-success', 'returned' => 'bg-danger'];
     $canEdit = true;
 
     $defaultPurpose = 'оплата за товар згідно рахунку-фактури № ' . $orderId . ' від ' . ($order['order_date'] ? date('d.m.Y', strtotime($order['order_date'])) : date('d.m.Y')) . ', без ПДВ';
@@ -1430,8 +1442,16 @@ if ($action === 'view' && $orderId) {
                                         <i class="bi bi-file-earmark-plus"></i> Створити ТТН
                                     </button>
                                     <?php endif; ?>
+                                    <?php if ($order['ttn_number']): ?>
+                                    <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#updateTtnModal">
+                                        <i class="bi bi-pencil-square"></i> Редагувати ТТН
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteTtn(<?php echo $orderId; ?>)">
+                                        <i class="bi bi-trash"></i> Видалити ТТН
+                                    </button>
+                                    <?php endif; ?>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editTtnModal">
-                                        <i class="bi bi-pencil"></i> <?php echo $order['ttn_number'] ? 'Змінити' : 'Ввести вручну'; ?>
+                                        <i class="bi bi-pencil"></i> <?php echo $order['ttn_number'] ? 'Змінити номер' : 'Ввести вручну'; ?>
                                     </button>
                                 </div>
                                 <?php endif; ?>
@@ -1513,7 +1533,7 @@ if ($action === 'view' && $orderId) {
                 <div class="card-header">Статус доставки</div>
                 <div class="card-body">
                     <div class="d-flex gap-2 flex-wrap">
-                        <?php foreach (['sending', 'in_transit', 'arrived', 'delivered', 'returned'] as $ds): ?>
+                        <?php foreach (['awaiting', 'sending', 'in_transit', 'arrived', 'delivered', 'returned'] as $ds): ?>
                         <?php if ($ds !== ($order['delivery_status'] ?: 'new')): ?>
                         <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=delivery_status&id=<?php echo $orderId; ?>&ds=<?php echo $ds; ?>" class="btn btn-sm btn-outline-<?php echo $ds === 'returned' ? 'danger' : ($ds === 'delivered' ? 'success' : 'secondary'); ?>" onclick="return confirm('Змінити статус доставки на \"<?php echo $deliveryStatusOptions[$ds]; ?>\"?')"><?php echo $deliveryStatusOptions[$ds]; ?></a>
                         <?php endif; ?>
@@ -1543,7 +1563,7 @@ if ($action === 'view' && $orderId) {
                         </tbody>
                         <tfoot>
                             <tr class="fw-bold"><td colspan="2">Сплачено</td><td class="text-end text-success"><?php echo formatMoney($totalPaid); ?></td></tr>
-                            <tr class="fw-bold <?php echo $balance > 0 ? 'text-warning' : 'text-success'; ?>"><td colspan="2">Залишок</td><td class="text-end"><?php echo formatMoney($balance); ?></td></tr>
+                            <tr class="fw-bold <?php echo $balance > 0 ? 'text-warning' : 'text-success'; ?>"><td colspan="2"><?php echo $balance > 0 && $order['payment_method'] === 'nova_poshta' ? 'Очікує зворотну доставку' : 'Залишок'; ?></td><td class="text-end"><?php echo formatMoney($balance); ?></td></tr>
                         </tfoot>
                     </table>
                     <?php else: ?>
@@ -1598,13 +1618,39 @@ if ($action === 'view' && $orderId) {
                     </div>
                     <div class="modal-body">
                         <input type="hidden" name="order_id" value="<?php echo $orderId; ?>">
-                        <div class="mb-3">
-                            <label class="form-label">Вага (кг) *</label>
-                            <input type="number" name="weight" class="form-control" step="0.1" min="0.1" value="1" required>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Вага (кг) *</label>
+                                <input type="number" name="weight" class="form-control" step="0.1" min="0.1" value="1" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Кількість місць</label>
+                                <input type="number" name="seats" class="form-control" min="1" value="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Оплачує</label>
+                                <select name="payer_type" class="form-select">
+                                    <option value="Recipient">Отримувач</option>
+                                    <option value="Sender">Відправник</option>
+                                </select>
+                            </div>
                         </div>
-                        <div class="mb-3">
-                            <label class="form-label">Кількість місць</label>
-                            <input type="number" name="seats" class="form-control" min="1" value="1">
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Довжина (см)</label>
+                                <input type="number" name="length" class="form-control" step="0.5" min="0" value="0" placeholder="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Ширина (см)</label>
+                                <input type="number" name="width" class="form-control" step="0.5" min="0" value="0" placeholder="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Висота (см)</label>
+                                <input type="number" name="height" class="form-control" step="0.5" min="0" value="0" placeholder="0">
+                            </div>
+                            <div class="col-md-12">
+                                <small class="text-muted">Якщо всі розміри 0, об'єм не передається</small>
+                            </div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Одержувач</label>
@@ -1619,14 +1665,101 @@ if ($action === 'view' && $orderId) {
                             <p class="form-control-plaintext"><?php echo escape($order['delivery_city'] ?: '') . ($order['delivery_office'] ? ', ' . escape($order['delivery_office']) : ''); ?></p>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Сума COD</label>
-                            <p class="form-control-plaintext fw-bold"><?php echo formatMoney($order['total']); ?></p>
+                            <label class="form-label">Опис вантажу</label>
+                            <input type="text" name="description" class="form-control" value="<?php echo escape($ttnDescription ?: 'Замовлення #' . $orderId); ?>">
+                            <div class="form-text">Назва товару, буде на ТТН</div>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Оголошена цінність (₴)</label>
+                                <input type="number" name="declared_cost" class="form-control" step="0.01" min="0" value="<?php echo (float)$order['total']; ?>">
+                                <div class="form-text">Страхування вантажу</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Сума зворотної доставки (₴)</label>
+                                <input type="number" name="cod_amount" class="form-control" step="0.01" min="0" value="<?php echo $order['payment_method'] === 'nova_poshta' ? (float)$order['total'] : 0; ?>">
+                                <div class="form-text">Скільки забрати з отримувача</div>
+                            </div>
                         </div>
                         <div id="createTtnResult" class="alert d-none mb-0"></div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
                         <button type="submit" class="btn btn-primary" id="createTtnSubmit"><i class="bi bi-file-earmark-plus"></i> Створити ТТН</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <?php if ($order['delivery_method'] === 'nova_poshta' && $order['ttn_number']): ?>
+    <!-- Update TTN Modal -->
+    <div class="modal fade" id="updateTtnModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" action="<?php echo BASE_URL; ?>/api/np-create-ttn.php" id="updateTtnForm" onsubmit="return submitUpdateTtn(this)">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Редагування ТТН #<?php echo escape($order['ttn_number']); ?></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" name="order_id" value="<?php echo $orderId; ?>">
+                        <input type="hidden" name="ref" value="<?php echo escape($order['np_ttn_ref'] ?? ''); ?>">
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Вага (кг) *</label>
+                                <input type="number" name="weight" class="form-control" step="0.1" min="0.1" value="1" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Кількість місць</label>
+                                <input type="number" name="seats" class="form-control" min="1" value="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Оплачує</label>
+                                <select name="payer_type" class="form-select">
+                                    <option value="Recipient">Отримувач</option>
+                                    <option value="Sender">Відправник</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Довжина (см)</label>
+                                <input type="number" name="length" class="form-control" step="0.5" min="0" value="0" placeholder="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Ширина (см)</label>
+                                <input type="number" name="width" class="form-control" step="0.5" min="0" value="0" placeholder="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Висота (см)</label>
+                                <input type="number" name="height" class="form-control" step="0.5" min="0" value="0" placeholder="0">
+                            </div>
+                            <div class="col-md-12">
+                                <small class="text-muted">Якщо всі розміри 0, об'єм не передається</small>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Опис вантажу</label>
+                            <input type="text" name="description" class="form-control" value="<?php echo escape($ttnDescription ?: 'Замовлення #' . $orderId); ?>">
+                            <div class="form-text">Буде оновлено в ТТН</div>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Оголошена цінність (₴)</label>
+                                <input type="number" name="declared_cost" class="form-control" step="0.01" min="0" value="<?php echo (float)$order['total']; ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Сума зворотної доставки (₴)</label>
+                                <input type="number" name="cod_amount" class="form-control" step="0.01" min="0" value="<?php echo $order['payment_method'] === 'nova_poshta' ? (float)$order['total'] : 0; ?>">
+                            </div>
+                        </div>
+                        <div id="updateTtnResult" class="alert d-none mb-0"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                        <button type="submit" class="btn btn-primary" id="updateTtnSubmit"><i class="bi bi-save"></i> Оновити ТТН</button>
                     </div>
                 </form>
             </div>
@@ -1667,20 +1800,27 @@ if ($action === 'view' && $orderId) {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Створення...';
         result.classList.add('d-none');
         fetch(form.action, { method: 'POST', body: new FormData(form) })
-            .then(r => r.json())
-            .then(data => {
-                if (data.error) {
+            .then(r => r.text().then(text => {
+                result.classList.remove('d-none');
+                try {
+                    const data = JSON.parse(text);
+                    if (data.error) {
+                        result.className = 'alert alert-danger mb-0';
+                        result.textContent = data.error;
+                    } else {
+                        result.className = 'alert alert-success mb-0';
+                        result.textContent = data.message;
+                        setTimeout(() => location.reload(), 1500);
+                    }
+                } catch(e) {
                     result.className = 'alert alert-danger mb-0';
-                    result.textContent = data.error;
-                } else {
-                    result.className = 'alert alert-success mb-0';
-                    result.textContent = data.message;
-                    setTimeout(() => location.reload(), 1500);
+                    result.textContent = 'Відповідь сервера не є JSON. Відкрийте F12 → Console або Network.';
+                    console.error('TTN raw response:', text.substring(0, 500));
                 }
-            })
-            .catch(function() {
+            }))
+            .catch(function(err) {
                 result.className = 'alert alert-danger mb-0';
-                result.textContent = 'Помилка з\'єднання';
+                result.textContent = 'Помилка: ' + err.message;
             })
             .finally(function() {
                 btn.disabled = false;
@@ -1712,6 +1852,69 @@ if ($action === 'view' && $orderId) {
                 result.classList.remove('d-none');
             });
         return false;
+    }
+
+    function submitUpdateTtn(form) {
+        const btn = document.getElementById('updateTtnSubmit');
+        const result = document.getElementById('updateTtnResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Оновлення...';
+        result.classList.add('d-none');
+        fetch(form.action, { method: 'POST', body: new FormData(form) })
+            .then(r => r.text().then(text => {
+                result.classList.remove('d-none');
+                try {
+                    const data = JSON.parse(text);
+                    if (data.error) {
+                        result.className = 'alert alert-danger mb-0';
+                        result.textContent = data.error;
+                    } else {
+                        result.className = 'alert alert-success mb-0';
+                        result.textContent = data.message;
+                        setTimeout(() => location.reload(), 1500);
+                    }
+                } catch(e) {
+                    result.className = 'alert alert-danger mb-0';
+                    result.textContent = 'Відповідь сервера не є JSON. Відкрийте F12 → Console або Network.';
+                    console.error('TTN update raw response:', text.substring(0, 500));
+                }
+            }))
+            .catch(function(err) {
+                result.className = 'alert alert-danger mb-0';
+                result.textContent = 'Помилка: ' + err.message;
+            })
+            .finally(function() {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-save"></i> Оновити ТТН';
+                result.classList.remove('d-none');
+            });
+        return false;
+    }
+
+    function deleteTtn(orderId) {
+        if (!confirm('Видалити ТТН? Це скасує документ в системі Нової Пошти.')) return;
+        const btn = event.target.closest('button');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>...';
+        const formData = new FormData();
+        formData.append('order_id', orderId);
+        fetch('<?php echo BASE_URL; ?>/api/np-delete-ttn.php', { method: 'POST', body: formData })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Помилка: ' + data.error);
+                } else {
+                    alert(data.message);
+                    location.reload();
+                }
+            })
+            .catch(function() {
+                alert('Помилка з\'єднання');
+            })
+            .finally(function() {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-trash"></i> Видалити ТТН';
+            });
     }
     </script>
     <?php
@@ -1752,8 +1955,8 @@ $statuses = $stmt->fetchAll();
 
 $statusOptions = ['pending' => 'Очікує', 'approved' => 'Підтверджено', 'processed' => 'В обробці', 'shipped' => 'Відправлено', 'delivered' => 'Доставлено', 'cancelled' => 'Скасовано'];
 $statusClasses = ['pending' => 'bg-warning text-dark', 'approved' => 'bg-info', 'processed' => 'bg-primary', 'shipped' => 'bg-secondary', 'delivered' => 'bg-success', 'cancelled' => 'bg-danger'];
-$deliveryStatusOptions = ['new' => 'Нове', 'sending' => 'Відправляється', 'in_transit' => 'В дорозі', 'arrived' => 'Прибуло у відділення', 'delivered' => 'Видано одержувачу', 'returned' => 'Повернення'];
-$deliveryStatusClasses = ['new' => 'bg-secondary', 'sending' => 'bg-info', 'in_transit' => 'bg-primary', 'arrived' => 'bg-warning text-dark', 'delivered' => 'bg-success', 'returned' => 'bg-danger'];
+$deliveryStatusOptions = ['new' => 'Нове', 'awaiting' => 'Очікує', 'sending' => 'Відправляється', 'in_transit' => 'В дорозі', 'arrived' => 'Прибуло у відділення', 'delivered' => 'Видано одержувачу', 'returned' => 'Повернення'];
+$deliveryStatusClasses = ['new' => 'bg-secondary', 'awaiting' => 'bg-secondary', 'sending' => 'bg-info', 'in_transit' => 'bg-primary', 'arrived' => 'bg-warning text-dark', 'delivered' => 'bg-success', 'returned' => 'bg-danger'];
 
 include __DIR__ . '/../includes/header.php';
 ?>
@@ -1812,7 +2015,7 @@ include __DIR__ . '/../includes/header.php';
                         <td><?php $sn = strtolower($o['status_name']); echo '<span class="badge ' . ($statusClasses[$sn] ?? 'bg-secondary') . '">' . ($statusOptions[$sn] ?? $sn) . '</span>'; ?></td>
                         <td><?php echo $o['ttn_number'] ? '<code>' . escape($o['ttn_number']) . '</code>' : '-'; ?></td>
                         <td><?php $ds = $o['delivery_status'] ?: 'new'; echo '<span class="badge ' . ($deliveryStatusClasses[$ds] ?? 'bg-secondary') . '">' . ($deliveryStatusOptions[$ds] ?? $ds) . '</span>'; ?></td>
-                        <td><?php echo $debt <= 0 ? '<span class="badge bg-success">Оплачено</span>' : '<span class="badge bg-danger">Не оплачено</span>'; ?></td>
+                        <td><?php echo $debt <= 0 ? '<span class="badge bg-success">Оплачено</span>' : ($o['payment_method'] === 'nova_poshta' ? '<span class="badge bg-warning text-dark">Очікує зворотну доставку</span>' : '<span class="badge bg-danger">Не оплачено</span>'); ?></td>
                         <td><?php echo $o['order_date'] ? formatDateShort($o['order_date']) : formatDate($o['date_added']); ?></td>
                         <td class="text-center">
                             <a href="<?php echo BASE_URL; ?>/modules/orders.php?action=view&id=<?php echo $o['order_id']; ?>" class="btn btn-sm btn-outline-primary" title="Переглянути"><i class="bi bi-eye"></i></a>

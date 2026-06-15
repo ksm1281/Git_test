@@ -265,9 +265,12 @@ include __DIR__ . '/../includes/header.php';
 
 <?php if ($tab === 'general'): ?>
 <div class="card">
-    <div class="card-header">Загальні налаштування</div>
+    <div class="card-header">Основні налаштування</div>
     <div class="card-body">
-        <form method="post">
+        <form method="post" x-data="npSenderSettings"
+              data-np-api-url="<?php echo htmlspecialchars(BASE_URL . '/api/nova-poshta.php', ENT_QUOTES, 'UTF-8'); ?>"
+              data-sender-city-ref="<?php echo escape($settings['np_sender_city_ref'] ?? ''); ?>"
+              data-sender-warehouse-ref="<?php echo escape($settings['np_sender_warehouse_ref'] ?? ''); ?>">
             <div class="row g-3 mb-3">
                 <div class="col-md-4">
                     <label class="form-label">Назва системи</label>
@@ -392,14 +395,52 @@ include __DIR__ . '/../includes/header.php';
             <h6 class="fw-bold mb-2 mt-3">Відправник (для створення ТТН через API)</h6>
             <div class="row g-3 mb-3">
                 <div class="col-md-4">
-                    <label class="form-label">Ref міста відправника</label>
-                    <input type="text" name="np_sender_city_ref" class="form-control font-monospace" value="<?php echo escape($settings['np_sender_city_ref'] ?? ''); ?>" placeholder="UUID міста (напр. 8d5a980d-391c-11dd-90d9-001a92567626)">
-                    <div class="form-text">Отримайте через <code>?action=cities</code></div>
+                    <label class="form-label">Місто відправника</label>
+                    <div class="position-relative">
+                        <input type="text" class="form-control" placeholder="Почніть вводити назву міста..." autocomplete="off"
+                               x-model="senderCityQuery"
+                               @input.debounce.300ms="searchSenderCity()"
+                               @focus="searchSenderCity()"
+                               @keydown.escape="senderCityOpen = false"
+                               @blur="closeSenderCity()">
+                        <input type="hidden" name="np_sender_city_ref" x-model="senderCityRef">
+                        <div x-show="senderCityOpen" x-cloak
+                             style="position:absolute;top:100%;left:0;right:0;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;">
+                            <template x-for="c in senderCityResults" :key="c.ref || '_err'">
+                                <button type="button" class="dropdown-item"
+                                        :class="{'text-danger': c._error}"
+                                        @mousedown.prevent="if(!c._error) selectSenderCity(c)">
+                                    <span x-show="!c._error" x-text="c.name"></span>
+                                    <span x-show="c._error" x-text="c._error"></span>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="form-text">Ref: <code x-text="senderCityRef || '—'"></code></div>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label">Ref відділення відправника</label>
-                    <input type="text" name="np_sender_warehouse_ref" class="form-control font-monospace" value="<?php echo escape($settings['np_sender_warehouse_ref'] ?? ''); ?>" placeholder="UUID відділення">
-                    <div class="form-text">Отримайте через <code>?action=warehouses&city_ref=...</code></div>
+                    <label class="form-label">Відділення відправника</label>
+                    <div class="position-relative">
+                        <input type="text" class="form-control" placeholder="Почніть вводити номер відділення..." autocomplete="off"
+                               x-model="senderWarehouseQuery"
+                               @input.debounce.300ms="searchSenderWarehouse()"
+                               @focus="if(senderWarehouseQuery && !senderWarehouseLoaded) searchSenderWarehouse()"
+                               @keydown.escape="senderWarehouseOpen = false"
+                               @blur="closeSenderWarehouse()">
+                        <input type="hidden" name="np_sender_warehouse_ref" x-model="senderWarehouseRef">
+                        <div x-show="senderWarehouseOpen" x-cloak
+                             style="position:absolute;top:100%;left:0;right:0;z-index:1060;background:#fff;border:1px solid #dee2e6;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);overflow-y:auto;max-height:200px;">
+                            <template x-for="w in senderWarehouseResults" :key="w.name || '_err'">
+                                <button type="button" class="dropdown-item"
+                                        :class="{'text-danger': w._error}"
+                                        @mousedown.prevent="if(!w._error) selectSenderWarehouse(w)">
+                                    <span x-show="!w._error" x-text="w.name"></span>
+                                    <span x-show="w._error" x-text="w._error"></span>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="form-text">Ref: <code x-text="senderWarehouseRef || '—'"></code></div>
                 </div>
                 <div class="col-md-4">
                     <label class="form-label">Телефон відправника</label>

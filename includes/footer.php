@@ -637,6 +637,97 @@
             }
         }));
 
+        Alpine.data('npSenderSettings', () => ({
+            senderCityQuery: '',
+            senderCityRef: '',
+            senderCityName: '',
+            senderCityResults: [],
+            senderCityOpen: false,
+            _npApiUrl: '/api/nova-poshta.php',
+
+            senderWarehouseQuery: '',
+            senderWarehouseRef: '',
+            senderWarehouseName: '',
+            senderWarehouseResults: [],
+            senderWarehouseOpen: false,
+            senderWarehouseLoaded: false,
+
+            init() {
+                const d = this.$el.dataset;
+                this._npApiUrl = d.npApiUrl || '/api/nova-poshta.php';
+                this.senderCityRef = d.senderCityRef || '';
+                this.senderWarehouseRef = d.senderWarehouseRef || '';
+                this.senderWarehouseLoaded = !!this.senderWarehouseRef;
+            },
+
+            async searchSenderCity() {
+                const q = this.senderCityQuery.trim();
+                if (q.length < 1) { this.senderCityResults = []; this.senderCityOpen = false; return; }
+                try {
+                    const r = await fetch(this._npApiUrl + '?action=cities&q=' + encodeURIComponent(q));
+                    const data = await r.json();
+                    if (data.error) {
+                        this.senderCityResults = [{ _error: data.error }];
+                        this.senderCityOpen = true;
+                        return;
+                    }
+                    this.senderCityResults = data || [];
+                    this.senderCityOpen = this.senderCityResults.length > 0;
+                } catch (e) {
+                    this.senderCityResults = [];
+                    this.senderCityOpen = false;
+                }
+            },
+
+            selectSenderCity(city) {
+                this.senderCityQuery = city.name;
+                this.senderCityName = city.name;
+                this.senderCityRef = city.ref;
+                this.senderCityOpen = false;
+            },
+
+            closeSenderCity() {
+                setTimeout(() => { this.senderCityOpen = false; }, 200);
+            },
+
+            async searchSenderWarehouse() {
+                const q = this.senderWarehouseQuery.trim();
+                if (!this.senderCityRef) {
+                    this.senderWarehouseResults = [{ _error: 'Спочатку оберіть місто' }];
+                    this.senderWarehouseOpen = true;
+                    return;
+                }
+                if (q.length < 1) { this.senderWarehouseResults = []; this.senderWarehouseOpen = false; return; }
+                try {
+                    const r = await fetch(this._npApiUrl + '?action=warehouses&city_ref='
+                        + encodeURIComponent(this.senderCityRef) + '&q=' + encodeURIComponent(q));
+                    const data = await r.json();
+                    if (data.error) {
+                        this.senderWarehouseResults = [{ _error: data.error }];
+                        this.senderWarehouseOpen = true;
+                        return;
+                    }
+                    this.senderWarehouseResults = data || [];
+                    this.senderWarehouseOpen = this.senderWarehouseResults.length > 0;
+                } catch (e) {
+                    this.senderWarehouseResults = [];
+                    this.senderWarehouseOpen = false;
+                }
+            },
+
+            selectSenderWarehouse(wh) {
+                this.senderWarehouseQuery = wh.name;
+                this.senderWarehouseName = wh.name;
+                this.senderWarehouseRef = wh.ref || '';
+                this.senderWarehouseLoaded = true;
+                this.senderWarehouseOpen = false;
+            },
+
+            closeSenderWarehouse() {
+                setTimeout(() => { this.senderWarehouseOpen = false; }, 200);
+            },
+        }));
+
         Alpine.data('paymentManager', () => ({
             filterType: '',
             addType: 'supplier',

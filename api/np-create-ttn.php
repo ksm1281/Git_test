@@ -1,4 +1,8 @@
 <?php
+while (ob_get_level()) ob_end_clean();
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../_helpers.php';
 
@@ -13,6 +17,15 @@ if (!isAdmin() && !isManager()) {
 $orderId = (int)($_POST['order_id'] ?? 0);
 $weight = (float)($_POST['weight'] ?? 1);
 $seats = (int)($_POST['seats'] ?? 1);
+$length = (float)($_POST['length'] ?? 0);
+$width = (float)($_POST['width'] ?? 0);
+$height = (float)($_POST['height'] ?? 0);
+$payerType = $_POST['payer_type'] ?? 'Recipient';
+$paymentMethod = $_POST['payment_method'] ?? 'Cash';
+$customDescription = trim($_POST['description'] ?? '');
+$declaredCost = (float)($_POST['declared_cost'] ?? 0);
+$codAmount = (float)($_POST['cod_amount'] ?? 0);
+$updateRef = trim($_POST['ref'] ?? '');
 
 if (!$orderId) {
     echo json_encode(['error' => 'Невірний ID замовлення']);
@@ -29,8 +42,9 @@ if (!$order) {
 }
 
 $stmt = $pdo->prepare("SELECT `key`, `value` FROM erp_settings WHERE `key` IN ('np_api_key', 'np_sender_city_ref', 'np_sender_warehouse_ref', 'np_sender_phone')");
+$stmt->execute();
 $set = [];
-foreach ($stmt as $row) {
+foreach ($stmt->fetchAll() as $row) {
     $set[$row['key']] = $row['value'];
 }
 
@@ -78,30 +92,39 @@ function npApiCall($apiUrl, $apiKey, $model, $method, $props) {
         CURLOPT_POSTFIELDS => $body,
         CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 15,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_SSL_VERIFYPEER => true,
     ]);
     $res = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $error = curl_error($ch);
     $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($http !== 200) return ['error' => "HTTP $http"];
+    if ($res === false) return ['error' => "Помилка з'єднання до API НП: [$errno] $error"];
+    if ($http !== 200) return ['error' => "HTTP $http від API НП"];
     $data = json_decode($res, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        return ['error' => 'Некоректна відповідь JSON від API НП (' . json_last_error_msg() . ')', 'raw' => mb_substr($res, 0, 200)];
+    }
     if (!isset($data['success']) || !$data['success']) {
-        return ['error' => $data['errors'][0] ?? 'Невідома помилка API'];
+        return ['error' => $data['errors'][0] ?? 'Невідома помилка API НП'];
     }
     return ['data' => $data['data']];
 }
 
-$itemsList = '';
+$itemsList = [];
 $stmt = $pdo->prepare("SELECT p.name, op.quantity FROM erp_order_products op LEFT JOIN erp_products p ON op.product_id = p.product_id WHERE op.order_id = ?");
 $stmt->execute([$orderId]);
 $items = $stmt->fetchAll();
 foreach ($items as $i) {
-    $itemsList .= ($itemsList ? ', ' : '') . ($i['name'] ?: 'Товар') . ' × ' . number_format((float)$i['quantity'], 0);
+    $name = $i['name'] ?: 'Товар';
+    $qty = number_format((float)$i['quantity'], 0);
+    $itemsList[] = "$name ($qty шт.)";
 }
-$description = mb_substr($itemsList ?: 'Товар згідно замовлення #' . $orderId, 0, 100);
+$description = mb_substr($customDescription ?: implode(', ', $itemsList) ?: 'Замовлення #' . $orderId, 0, 100);
 
-$cost = max(1, (int)round((float)$order['total']));
+$cost = $declaredCost > 0 ? max(1, (int)round($declaredCost)) : max(1, (int)round((float)$order['total']));
 
 // 1. Find or create recipient counterparty
 $result = npApiCall($apiUrl, $apiKey, 'Counterparty', 'getCounterparties', [
@@ -124,9 +147,12 @@ foreach ($result['data'] as $cp) {
 }
 
 if (!$recipientRef) {
+    $nameParts = explode(' ', trim($recipientName), 2);
     $result = npApiCall($apiUrl, $apiKey, 'Counterparty', 'save', [
         'CounterpartyProperty' => 'Recipient',
-        'Name' => $recipientName,
+        'CounterpartyType' => 'PrivatePerson',
+        'FirstName' => $nameParts[0] ?: $recipientName,
+        'LastName' => $nameParts[1] ?? '',
         'Phone' => $phone,
     ]);
     if (isset($result['error'])) {
@@ -141,10 +167,10 @@ if (!$recipientRef) {
     }
 }
 
-// 2. Create internet document (TTN)
+// 2. Create/update internet document (TTN)
 $props = [
-    'PayerType' => 'Recipient',
-    'PaymentMethod' => 'Cash',
+    'PayerType' => $payerType,
+    'PaymentMethod' => $paymentMethod,
     'DateTime' => date('d.m.Y'),
     'CargoType' => 'Cargo',
     'Weight' => number_format($weight, 1),
@@ -164,6 +190,12 @@ $props = [
     'RecipientsPhone' => $phone,
 ];
 
+if ($length > 0 && $width > 0 && $height > 0) {
+    $props['VolumetricLengthMeter'] = number_format($length / 100, 3, '.', '');
+    $props['VolumetricWidthMeter'] = number_format($width / 100, 3, '.', '');
+    $props['VolumetricHeightMeter'] = number_format($height / 100, 3, '.', '');
+}
+
 // Get sender counterparty + contact ref dynamically
 $result = npApiCall($apiUrl, $apiKey, 'Counterparty', 'getCounterparties', [
     'CounterpartyProperty' => 'Sender',
@@ -178,35 +210,69 @@ if (empty($result['data'])) {
     exit;
 }
 $props['Sender'] = $result['data'][0]['Ref'];
-$props['ContactSender'] = $result['data'][0]['ContactPerson']['data'][0]['Ref'] ?? '';
+$senderRef = $props['Sender'];
+$contactResult = npApiCall($apiUrl, $apiKey, 'Counterparty', 'getCounterpartyContactPersons', [
+    'Ref' => $senderRef,
+]);
+if (!isset($contactResult['error']) && !empty($contactResult['data'])) {
+    $props['ContactSender'] = $contactResult['data'][0]['Ref'];
+} else {
+    $contactResult = npApiCall($apiUrl, $apiKey, 'Counterparty', 'save', [
+        'CounterpartyProperty' => 'Sender',
+        'CounterpartyType' => 'PrivatePerson',
+        'FirstName' => $result['data'][0]['Description'] ?: 'Відправник',
+        'Phone' => $senderPhone,
+    ]);
+    if (!isset($contactResult['error']) && !empty($contactResult['data'])) {
+        $props['ContactSender'] = $contactResult['data'][0]['Ref'];
+    } else {
+        echo json_encode(['error' => 'Не знайдено контактну особу відправника. Додайте в кабінеті НП або налаштуйте відправника як PrivatePerson.']);
+        exit;
+    }
+}
 
-if ($order['payment_method'] === 'nova_poshta') {
+if ($codAmount > 0) {
     $props['BackwardDeliveryData'] = [
         [
             'PayerType' => 'Recipient',
             'CargoType' => 'Money',
-            'RedeliveryString' => (string)$cost,
+            'RedeliveryString' => (string)max(1, (int)round($codAmount)),
         ],
     ];
 }
 
-$result = npApiCall($apiUrl, $apiKey, 'InternetDocument', 'save', $props);
+if ($updateRef) {
+    $props['Ref'] = $updateRef;
+    $result = npApiCall($apiUrl, $apiKey, 'InternetDocument', 'update', $props);
+} else {
+    $result = npApiCall($apiUrl, $apiKey, 'InternetDocument', 'save', $props);
+}
 if (isset($result['error'])) {
     echo json_encode(['error' => 'Помилка створення ТТН: ' . $result['error']]);
     exit;
 }
 
 $ttn = $result['data'][0]['IntDocNumber'] ?? '';
+$docRef = $result['data'][0]['Ref'] ?? '';
 if (!$ttn) {
     echo json_encode(['error' => 'Не отримано номер ТТН від API НП']);
     exit;
 }
 
-$pdo->prepare("UPDATE erp_orders SET ttn_number = ?, delivery_status = 'sending' WHERE order_id = ?")
-    ->execute([$ttn, $orderId]);
-
-echo json_encode([
-    'success' => true,
-    'ttn' => $ttn,
-    'message' => 'ТТН ' . $ttn . ' створено',
-], JSON_UNESCAPED_UNICODE);
+if ($updateRef) {
+    $pdo->prepare("UPDATE erp_orders SET ttn_number = ?, np_ttn_ref = ? WHERE order_id = ?")
+        ->execute([$ttn, $docRef, $orderId]);
+    echo json_encode([
+        'success' => true,
+        'ttn' => $ttn,
+        'message' => 'ТТН ' . $ttn . ' оновлено',
+    ], JSON_UNESCAPED_UNICODE);
+} else {
+    $pdo->prepare("UPDATE erp_orders SET ttn_number = ?, np_ttn_ref = ?, delivery_status = 'awaiting' WHERE order_id = ?")
+        ->execute([$ttn, $docRef, $orderId]);
+    echo json_encode([
+        'success' => true,
+        'ttn' => $ttn,
+        'message' => 'ТТН ' . $ttn . ' створено',
+    ], JSON_UNESCAPED_UNICODE);
+}

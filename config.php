@@ -436,6 +436,10 @@ function initErpTables($pdo) {
         try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN delivery_cost DECIMAL(15,4) DEFAULT 0 AFTER delivery_status"); } catch (PDOException $e2) { /* ignore */ }
     }
 
+    try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN IF NOT EXISTS np_ttn_ref VARCHAR(64) DEFAULT NULL AFTER ttn_number"); } catch (PDOException $e) {
+        try { $pdo->exec("ALTER TABLE erp_orders ADD COLUMN np_ttn_ref VARCHAR(64) DEFAULT NULL AFTER ttn_number"); } catch (PDOException $e2) { /* ignore */ }
+    }
+
     $stmt = $pdo->query("SELECT COUNT(*) FROM erp_cash_accounts");
     if ($stmt->fetchColumn() == 0) {
         $pdo->exec("INSERT INTO erp_cash_accounts (name, type, currency) VALUES
